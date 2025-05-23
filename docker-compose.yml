@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  # Quote Management Service (No database - uses TMForum API)
+  app:
+    build: .
+    container_name: quote-management-service
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      TMFORUM_API_BASE_URL: ${TMFORUM_API_BASE_URL:-http://your-tmforum-api-url}
+    ports:
+      - "8080:8080"
+    networks:
+      - quote-network
+
+networks:
+  quote-network:
+    driver: bridge 

@@ -1,0 +1,30 @@
+# Ignore Git files
+.git
+.gitignore
+
+# Ignore IDE files
+.vscode/
+.idea/
+*.iml
+
+# Ignore Maven target directory
+target/
+
+# Ignore temporary files
+*.tmp
+*.log
+
+# Ignore OS specific files
+.DS_Store
+Thumbs.db
+
+# Ignore local scripts
+run-local.bat
+
+# Ignore README and documentation
+README.md
+LICENSE
+
+# Ignore Docker files
+Dockerfile
+.dockerignore 

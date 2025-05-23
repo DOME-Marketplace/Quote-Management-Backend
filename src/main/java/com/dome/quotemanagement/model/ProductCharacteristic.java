@@ -17,7 +17,7 @@ public class ProductCharacteristic {
     @Column(name = "value_type", nullable = false)
     private String valueType;
 
-    @Column(nullable = false)
+    @Column(name = "characteristic_value", nullable = false)
     private String value;
 
     @ManyToOne(fetch = FetchType.LAZY)
