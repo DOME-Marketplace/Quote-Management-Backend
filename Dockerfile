@@ -1,5 +1,5 @@
-# Use Maven image for building
-FROM maven:3.9.4-eclipse-temurin-17 as build
+# Use Maven image for building (matching pom.xml Java 16)
+FROM maven:3.9.4-openjdk-16 as build
 WORKDIR /workspace/app
 
 # Copy pom.xml first for better layer caching
@@ -14,13 +14,17 @@ COPY src src
 # Build the application
 RUN mvn clean package -DskipTests -B
 
-# Runtime stage
+# Runtime stage (using Java 17 JRE which is compatible with Java 16 code)
 FROM eclipse-temurin:17-jre-alpine
 VOLUME /tmp
 
 # Create non-root user for security
 RUN addgroup -g 1001 -S appgroup && \
     adduser -u 1001 -S appuser -G appgroup
+
+# Create directory for uploads (for attachment functionality)
+RUN mkdir -p /app/uploads/attachments && \
+    chown -R appuser:appgroup /app
 
 # Copy the built JAR file
 COPY --from=build /workspace/app/target/*.jar app.jar
@@ -34,5 +38,12 @@ USER appuser
 # Expose port
 EXPOSE 8080
 
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD curl -f http://localhost:8080/actuator/health || exit 1
+
+# Set JVM options for container environment
+ENV JAVA_OPTS="-Xmx512m -Xms256m -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
+
 # Set active profile and run the application
-ENTRYPOINT ["java", "-Dspring.profiles.active=local", "-jar", "/app.jar"] 
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -Dspring.profiles.active=local -jar /app.jar"] 

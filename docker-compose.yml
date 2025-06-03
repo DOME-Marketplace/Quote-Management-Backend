@@ -2,17 +2,52 @@ version: '3.8'
 
 services:
   # Quote Management Service (No database - uses TMForum API)
-  app:
-    build: .
+  quote-management-app:
+    build: 
+      context: .
+      dockerfile: Dockerfile
     container_name: quote-management-service
+    restart: unless-stopped
     environment:
-      SPRING_PROFILES_ACTIVE: local
-      TMFORUM_API_BASE_URL: ${TMFORUM_API_BASE_URL:-http://your-tmforum-api-url}
+      - SPRING_PROFILES_ACTIVE=local
+      - TMFORUM_API_BASE_URL=${TMFORUM_API_BASE_URL:-https://an-dhub-sbx.dome-project.eu/tmf-api}
+      - JAVA_OPTS=-Xmx512m -Xms256m
     ports:
       - "8080:8080"
+    volumes:
+      - ./uploads:/app/uploads  # Mount for persistent file storage
     networks:
       - quote-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    labels:
+      - "com.dome.service=quote-management"
+      - "com.dome.version=1.0.0"
+
+  # Optional: Add a reverse proxy for production use
+  # nginx:
+  #   image: nginx:alpine
+  #   container_name: quote-management-proxy
+  #   restart: unless-stopped
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./nginx.conf:/etc/nginx/nginx.conf:ro
+  #   depends_on:
+  #     - quote-management-app
+  #   networks:
+  #     - quote-network
 
 networks:
   quote-network:
-    driver: bridge 
+    driver: bridge
+    name: quote-management-network
+
+volumes:
+  quote_uploads:
+    driver: local 

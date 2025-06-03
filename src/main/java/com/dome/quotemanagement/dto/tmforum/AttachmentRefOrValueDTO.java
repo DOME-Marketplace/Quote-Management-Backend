@@ -4,7 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
 @Data
-public class AttachmentDTO {
+public class AttachmentRefOrValueDTO {
     @JsonProperty("@type")
     private String type;
     
@@ -14,11 +14,17 @@ public class AttachmentDTO {
     @JsonProperty("@schemaLocation")
     private String schemaLocation;
     
+    @JsonProperty("@referredType")
+    private String referredType;
+    
     private String id;
     private String href;
     private String attachmentType;
+    private String content;
+    private String description;
+    private String mimeType;
     private String name;
     private String url;
-    private String size;
-    private String mimeType;
+    private QuantityDTO size;
+    private String validFor;
 } 

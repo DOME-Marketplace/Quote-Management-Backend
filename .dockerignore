@@ -1,30 +1,57 @@
 # Ignore Git files
 .git
 .gitignore
+.gitattributes
 
 # Ignore IDE files
 .vscode/
 .idea/
 *.iml
+*.ipr
+*.iws
+.eclipse/
+.metadata/
+.settings/
 
-# Ignore Maven target directory
+# Ignore Maven target directory and cache
 target/
+.mvn/
+mvnw
+mvnw.cmd
+
+# Ignore Node.js files (if any)
+node_modules/
+npm-debug.log*
 
 # Ignore temporary files
 *.tmp
 *.log
+*.logs
+*.swp
+*.bak
 
 # Ignore OS specific files
 .DS_Store
 Thumbs.db
+*.orig
 
-# Ignore local scripts
+# Ignore local scripts and configuration
 run-local.bat
+env.example
 
-# Ignore README and documentation
+# Ignore documentation
 README.md
 LICENSE
+*.md
 
-# Ignore Docker files
-Dockerfile
-.dockerignore 
+# Ignore Docker files (don't copy into image)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Ignore test files
+**/*test*
+**/*Test*
+
+# Ignore uploads directory (will be mounted as volume)
+uploads/ 

@@ -1,5 +1,6 @@
 package com.dome.quotemanagement.dto.tmforum;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
@@ -7,6 +8,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 @Data
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class QuoteDTO {
     @JsonProperty("@type")
     private String type;
@@ -24,6 +26,7 @@ public class QuoteDTO {
     private LocalDateTime effectiveQuoteCompletionDate;
     private LocalDateTime expectedFulfillmentStartDate;
     private LocalDateTime expectedQuoteCompletionDate;
+    private LocalDateTime requestedQuoteCompletionDate;
     private String externalId;
     private Boolean instantSyncQuote;
     private LocalDateTime quoteDate;
@@ -33,5 +36,4 @@ public class QuoteDTO {
     private List<QuoteItemDTO> quoteItem;
     private List<RelatedPartyDTO> relatedParty;
     private List<NoteDTO> note;
-    private List<AttachmentDTO> attachment;
 } 
