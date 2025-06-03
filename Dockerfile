@@ -22,10 +22,6 @@ VOLUME /tmp
 RUN addgroup -g 1001 -S appgroup && \
     adduser -u 1001 -S appuser -G appgroup
 
-# Create directory for uploads (for attachment functionality)
-RUN mkdir -p /app/uploads/attachments && \
-    chown -R appuser:appgroup /app
-
 # Copy the built JAR file
 COPY --from=build /workspace/app/target/*.jar app.jar
 

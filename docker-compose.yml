@@ -14,10 +14,6 @@ services:
       - JAVA_OPTS=-Xmx512m -Xms256m
     ports:
       - "8080:8080"
-    volumes:
-      - ./uploads:/app/uploads  # Mount for persistent file storage
-    networks:
-      - quote-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
       interval: 30s
@@ -42,12 +38,3 @@ services:
   #     - quote-management-app
   #   networks:
   #     - quote-network
-
-networks:
-  quote-network:
-    driver: bridge
-    name: quote-management-network
-
-volumes:
-  quote_uploads:
-    driver: local 
