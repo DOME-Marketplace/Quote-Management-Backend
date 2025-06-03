@@ -12,4 +12,6 @@ public class QuoteCreateRequestDTO {
     
     @NotBlank(message = "Provider ID reference is required")
     private String providerIdRef;
+    
+    private String productOfferingId; // Optional - can be null or empty
 } 

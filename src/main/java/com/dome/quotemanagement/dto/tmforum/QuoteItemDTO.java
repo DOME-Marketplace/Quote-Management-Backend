@@ -22,6 +22,7 @@ public class QuoteItemDTO {
     private String href;
     private String action;
     private ProductRefOrValueDTO product;
+    private ProductOfferingRefDTO productOffering;
     private Integer quantity;
     private String state;
     private List<AttachmentRefOrValueDTO> attachment;

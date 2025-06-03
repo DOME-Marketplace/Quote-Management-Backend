@@ -1,5 +1,5 @@
-# Use Maven image for building (matching pom.xml Java 16)
-FROM maven:3.9.4-openjdk-16 as build
+# Use Maven image for building (using eclipse-temurin JDK 17)
+FROM maven:3.9-eclipse-temurin-17 as build
 WORKDIR /workspace/app
 
 # Copy pom.xml first for better layer caching

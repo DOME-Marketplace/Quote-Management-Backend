@@ -100,7 +100,8 @@ public class QuoteManagementController {
         QuoteDTO createdQuote = quoteService.create(
             request.getCustomerMessage(), 
             request.getCustomerIdRef(), 
-            request.getProviderIdRef()
+            request.getProviderIdRef(),
+            request.getProductOfferingId()
         );
         return ResponseEntity.status(HttpStatus.CREATED).body(createdQuote);
     }

@@ -81,18 +81,16 @@ public class QuoteServiceImpl implements QuoteService {
     }
     
     @Override
-    public QuoteDTO create(String customerMessage, String customerIdRef, String providerIdRef) {
+    public QuoteDTO create(String customerMessage, String customerIdRef, String providerIdRef, String productOfferingId) {
         String url = tmforumBaseUrl.trim() + "/quoteManagement/v4/quote";
         log.debug("Calling external TMForum API: {}", url);
-        log.debug("Create quote parameters - customerMessage: '{}', customerIdRef: '{}', providerIdRef: '{}'", 
-                  customerMessage, customerIdRef, providerIdRef);
-
-        //TODO: Add the reference to the product catalog item
+        log.debug("Create quote parameters - customerMessage: '{}', customerIdRef: '{}', providerIdRef: '{}', productOfferingId: '{}'", 
+                  customerMessage, customerIdRef, providerIdRef, productOfferingId);
         
         // Create minimal JSON payload manually to ensure exact format
         try {
             // Build a minimal JSON payload that conforms to TMForum standards
-            String jsonPayload = buildCreateQuoteJson(customerMessage, customerIdRef, providerIdRef);
+            String jsonPayload = buildCreateQuoteJson(customerMessage, customerIdRef, providerIdRef, productOfferingId);
             
             // Set proper headers for JSON
             HttpHeaders headers = new HttpHeaders();
@@ -587,7 +585,7 @@ public class QuoteServiceImpl implements QuoteService {
     /**
      * Build a minimal JSON payload that conforms to TMForum Quote creation standards
      */
-    private String buildCreateQuoteJson(String customerMessage, String customerIdRef, String providerIdRef) {
+    private String buildCreateQuoteJson(String customerMessage, String customerIdRef, String providerIdRef, String productOfferingId) {
         try {
             // Create the root JSON object
             ObjectNode quoteJson = objectMapper.createObjectNode();
@@ -634,6 +632,14 @@ public class QuoteServiceImpl implements QuoteService {
             quoteItem.put("state", "inProgress");
             quoteItem.put("quantity", 1);
             quoteItem.set("note", objectMapper.createObjectNode()); // Empty note object
+            
+            // Add productOffering reference if productOfferingId is provided
+            if (productOfferingId != null && !productOfferingId.trim().isEmpty()) {
+                ObjectNode productOffering = objectMapper.createObjectNode();
+                productOffering.put("id", productOfferingId);
+                productOffering.put("@type", "ProductOfferingRef");
+                quoteItem.set("productOffering", productOffering);
+            }
             
             quoteItemArray.add(quoteItem);
             quoteJson.set("quoteItem", quoteItemArray);
