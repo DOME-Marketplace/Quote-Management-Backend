@@ -1,6 +1,5 @@
 package com.dome.quotemanagement.service;
 
-import com.dome.quotemanagement.dto.tmforum.AttachmentRefOrValueDTO;
 import com.dome.quotemanagement.dto.tmforum.QuoteDTO;
 import org.springframework.web.multipart.MultipartFile;
 import java.util.List;

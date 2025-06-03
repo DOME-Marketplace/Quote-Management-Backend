@@ -1,7 +1,6 @@
 package com.dome.quotemanagement.controller;
 
 import com.dome.quotemanagement.dto.QuoteCreateRequestDTO;
-import com.dome.quotemanagement.dto.tmforum.AttachmentRefOrValueDTO;
 import com.dome.quotemanagement.dto.tmforum.QuoteDTO;
 import com.dome.quotemanagement.service.QuoteService;
 import io.swagger.v3.oas.annotations.Operation;
