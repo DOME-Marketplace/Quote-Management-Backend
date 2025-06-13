@@ -41,7 +41,15 @@ public class QuoteManagementController {
         @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     public ResponseEntity<List<QuoteDTO>> listAllQuotes() {
-        return ResponseEntity.ok(quoteService.findAllQuotes());
+        log.info("Received request to list all quotes");
+        try {
+            List<QuoteDTO> quotes = quoteService.findAllQuotes();
+            log.info("Successfully retrieved {} quotes", quotes.size());
+            return ResponseEntity.ok(quotes);
+        } catch (Exception e) {
+            log.error("Error listing all quotes: {}", e.getMessage(), e);
+            throw e;
+        }
     }
 
     @GetMapping("/quoteByUser/{customerId}")
@@ -58,10 +66,21 @@ public class QuoteManagementController {
     public ResponseEntity<List<QuoteDTO>> listQuotesByUser(
             @Parameter(description = "Customer ID to filter quotes by", required = true)
             @PathVariable String customerId) {
+        log.info("Received request to list quotes for customer: '{}'", customerId);
+        
         if (customerId == null || customerId.trim().isEmpty()) {
+            log.warn("Invalid customer ID provided: '{}'", customerId);
             return ResponseEntity.badRequest().build();
         }
-        return ResponseEntity.ok(quoteService.findQuotesByUser(customerId));
+        
+        try {
+            List<QuoteDTO> quotes = quoteService.findQuotesByUser(customerId);
+            log.info("Successfully retrieved {} quotes for customer: '{}'", quotes.size(), customerId);
+            return ResponseEntity.ok(quotes);
+        } catch (Exception e) {
+            log.error("Error listing quotes for customer '{}': {}", customerId, e.getMessage(), e);
+            throw e;
+        }
     }
 
     @GetMapping("/quoteById/{id}")
@@ -78,9 +97,22 @@ public class QuoteManagementController {
     public ResponseEntity<QuoteDTO> getQuote(
             @Parameter(description = "Quote ID", required = true)
             @PathVariable String id) {
-        return quoteService.findById(id)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+        log.info("Received request to get quote by ID: '{}'", id);
+        
+        try {
+            return quoteService.findById(id)
+                    .map(quote -> {
+                        log.info("Successfully retrieved quote with ID: '{}'", id);
+                        return ResponseEntity.ok(quote);
+                    })
+                    .orElseGet(() -> {
+                        log.warn("Quote not found with ID: '{}'", id);
+                        return ResponseEntity.notFound().build();
+                    });
+        } catch (Exception e) {
+            log.error("Error retrieving quote with ID '{}': {}", id, e.getMessage(), e);
+            throw e;
+        }
     }
 
     @PostMapping("/createQuote")
@@ -97,13 +129,22 @@ public class QuoteManagementController {
     public ResponseEntity<QuoteDTO> createQuote(
             @Parameter(description = "Quote creation request", required = true)
             @Valid @RequestBody QuoteCreateRequestDTO request) {
-        QuoteDTO createdQuote = quoteService.create(
-            request.getCustomerMessage(), 
-            request.getCustomerIdRef(), 
-            request.getProviderIdRef(),
-            request.getProductOfferingId()
-        );
-        return ResponseEntity.status(HttpStatus.CREATED).body(createdQuote);
+        log.info("Received request to create quote with payload: customerMessage='{}', customerIdRef='{}', providerIdRef='{}', productOfferingId='{}'",
+                request.getCustomerMessage(), request.getCustomerIdRef(), request.getProviderIdRef(), request.getProductOfferingId());
+        
+        try {
+            QuoteDTO createdQuote = quoteService.create(
+                request.getCustomerMessage(), 
+                request.getCustomerIdRef(), 
+                request.getProviderIdRef(),
+                request.getProductOfferingId()
+            );
+            log.info("Successfully created quote with ID: '{}'", createdQuote.getId());
+            return ResponseEntity.status(HttpStatus.CREATED).body(createdQuote);
+        } catch (Exception e) {
+            log.error("Error creating quote with payload: {}", request, e);
+            throw e;
+        }
     }
 
     @PatchMapping("/updateQuoteStatus/{id}")
@@ -123,9 +164,22 @@ public class QuoteManagementController {
             @PathVariable String id,
             @Parameter(description = "New status value (inProgress, pending, approved, cancelled, accepted, rejected)", required = true)
             @RequestParam String statusValue) {
-        return quoteService.updateQuoteStatus(id, statusValue)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+        log.info("Received request to update quote status - quoteId: '{}', statusValue: '{}'", id, statusValue);
+        
+        try {
+            return quoteService.updateQuoteStatus(id, statusValue)
+                    .map(quote -> {
+                        log.info("Successfully updated quote status - quoteId: '{}', statusValue: '{}'", id, statusValue);
+                        return ResponseEntity.ok(quote);
+                    })
+                    .orElseGet(() -> {
+                        log.warn("Quote not found for status update - quoteId: '{}'", id);
+                        return ResponseEntity.notFound().build();
+                    });
+        } catch (Exception e) {
+            log.error("Error updating quote status - quoteId: '{}', statusValue: '{}': {}", id, statusValue, e.getMessage(), e);
+            throw e;
+        }
     }
 
     @PatchMapping("/addNoteToQuote/{id}")
@@ -147,61 +201,101 @@ public class QuoteManagementController {
             @RequestParam String userId,
             @Parameter(description = "Note/message content to add", required = true)
             @RequestParam String messageContent) {
-        return quoteService.updateQuoteNote(id, userId, messageContent)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+        log.info("Received request to add note to quote - quoteId: '{}', userId: '{}', messageContent: '{}'", id, userId, messageContent);
+        
+        try {
+            return quoteService.updateQuoteNote(id, userId, messageContent)
+                    .map(quote -> {
+                        log.info("Successfully added note to quote - quoteId: '{}', userId: '{}'", id, userId);
+                        return ResponseEntity.ok(quote);
+                    })
+                    .orElseGet(() -> {
+                        log.warn("Quote not found for note update - quoteId: '{}'", id);
+                        return ResponseEntity.notFound().build();
+                    });
+        } catch (Exception e) {
+            log.error("Error adding note to quote - quoteId: '{}', userId: '{}': {}", id, userId, e.getMessage(), e);
+            throw e;
+        }
     }
 
     @PatchMapping(value = "/addAttachmentToQuote/{id}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @Operation(
         summary = "Add attachment to quote", 
-        description = "Uploads and adds a PDF file attachment to the quote. The file content is embedded as base64 in the attachment object. Accepts multipart file upload. Backend calls: /quote/{id}"
+        description = "Adds a PDF attachment to the quote. Only PDF files up to 10MB are allowed. Backend calls: /quote/{id}"
     )
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "Quote attachment added successfully",
                     content = @Content(mediaType = "application/json", schema = @Schema(implementation = QuoteDTO.class))),
         @ApiResponse(responseCode = "404", description = "Quote not found"),
-        @ApiResponse(responseCode = "400", description = "Invalid file or file format (only PDF allowed)"),
+        @ApiResponse(responseCode = "400", description = "Invalid file or description"),
         @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     public ResponseEntity<QuoteDTO> updateQuoteAttachment(
             @Parameter(description = "Quote ID", required = true)
             @PathVariable String id,
-            @Parameter(description = "PDF file to attach", required = true, 
-                      content = @Content(mediaType = MediaType.MULTIPART_FORM_DATA_VALUE))
+            @Parameter(description = "PDF file to attach (max 10MB)", required = true)
             @RequestParam("file") MultipartFile file,
-            @Parameter(description = "Optional description for the attachment")
-            @RequestParam(value = "description", required = false) String description) {
+            @Parameter(description = "Description of the attachment", required = false)
+            @RequestParam(value = "description", required = false, defaultValue = "") String description) {
+        log.info("Received request to add attachment to quote - quoteId: '{}', filename: '{}', size: {} bytes, description: '{}'", 
+                id, file.getOriginalFilename(), file.getSize(), description);
         
         try {
             return quoteService.updateQuoteAttachment(id, file, description)
-                    .map(ResponseEntity::ok)
-                    .orElse(ResponseEntity.notFound().build());
+                    .map(quote -> {
+                        log.info("Successfully added attachment to quote - quoteId: '{}', filename: '{}'", id, file.getOriginalFilename());
+                        return ResponseEntity.ok(quote);
+                    })
+                    .orElseGet(() -> {
+                        log.warn("Quote not found for attachment upload - quoteId: '{}'", id);
+                        return ResponseEntity.notFound().build();
+                    });
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().build();
+            log.warn("Validation error for attachment upload - quoteId: '{}', filename: '{}': {}", id, file.getOriginalFilename(), e.getMessage());
+            throw e;
+        } catch (Exception e) {
+            log.error("Error adding attachment to quote - quoteId: '{}', filename: '{}': {}", id, file.getOriginalFilename(), e.getMessage(), e);
+            throw e;
         }
     }
 
     @PatchMapping("/updateQuoteDate/{id}")
     @Operation(
         summary = "Update quote completion date", 
-        description = "Updates the requested completion date for the quote. Date should be in DD-MM-YYYY format (e.g., 31-12-2024). The time will be automatically set to end of day. Backend calls: /quote/{id}"
+        description = "Updates the requested completion date for a quote. Date format: DD-MM-YYYY. Backend calls: /quote/{id}"
     )
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "Quote date updated successfully",
                     content = @Content(mediaType = "application/json", schema = @Schema(implementation = QuoteDTO.class))),
         @ApiResponse(responseCode = "404", description = "Quote not found"),
-        @ApiResponse(responseCode = "400", description = "Invalid date format (expected DD-MM-YYYY)"),
+        @ApiResponse(responseCode = "400", description = "Invalid date format"),
         @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     public ResponseEntity<QuoteDTO> updateQuoteDate(
             @Parameter(description = "Quote ID", required = true)
             @PathVariable String id,
-            @Parameter(description = "New completion date in DD-MM-YYYY format (e.g., 31-12-2024)", required = true)
+            @Parameter(description = "Completion date in DD-MM-YYYY format (e.g., 31-12-2024)", required = true)
             @RequestParam String date) {
-        return quoteService.updateQuoteDate(id, date)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+        log.info("Received request to update quote date - quoteId: '{}', date: '{}'", id, date);
+        
+        try {
+            return quoteService.updateQuoteDate(id, date)
+                    .map(quote -> {
+                        log.info("Successfully updated quote date - quoteId: '{}', date: '{}'", id, date);
+                        return ResponseEntity.ok(quote);
+                    })
+                    .orElseGet(() -> {
+                        log.warn("Quote not found for date update - quoteId: '{}'", id);
+                        return ResponseEntity.notFound().build();
+                    });
+        } catch (IllegalArgumentException e) {
+            log.warn("Invalid date format for quote update - quoteId: '{}', date: '{}': {}", id, date, e.getMessage());
+            throw e;
+        } catch (Exception e) {
+            log.error("Error updating quote date - quoteId: '{}', date: '{}': {}", id, date, e.getMessage(), e);
+            throw e;
+        }
     }
 
     @DeleteMapping("/quote/{id}")
@@ -217,7 +311,15 @@ public class QuoteManagementController {
     public ResponseEntity<Void> deleteQuote(
             @Parameter(description = "Quote ID", required = true)
             @PathVariable String id) {
-        quoteService.delete(id);
-        return ResponseEntity.noContent().build();
+        log.info("Received request to delete quote - quoteId: '{}'", id);
+        
+        try {
+            quoteService.delete(id);
+            log.info("Successfully deleted quote - quoteId: '{}'", id);
+            return ResponseEntity.noContent().build();
+        } catch (Exception e) {
+            log.error("Error deleting quote - quoteId: '{}': {}", id, e.getMessage(), e);
+            throw e;
+        }
     }
 } 

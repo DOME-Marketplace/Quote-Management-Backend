@@ -6,22 +6,32 @@ import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManagerBuil
 import org.apache.hc.client5.http.ssl.SSLConnectionSocketFactoryBuilder;
 import org.apache.hc.client5.http.ssl.TrustAllStrategy;
 import org.apache.hc.core5.ssl.SSLContextBuilder;
+import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import javax.net.ssl.*;
+import java.time.Duration;
+import java.util.Arrays;
 import java.util.Collections;
 
 @Configuration
 public class AppConfig {
     
+    @Autowired
+    private RestTemplateLoggingInterceptor restTemplateLoggingInterceptor;
+
     @Bean
-    public RestTemplate restTemplate() {
-        RestTemplate restTemplate = new RestTemplate();
+    public RestTemplate restTemplate(RestTemplateBuilder builder) {
+        RestTemplate restTemplate = builder
+                .setConnectTimeout(Duration.ofSeconds(30))
+                .setReadTimeout(Duration.ofSeconds(60))
+                .build();
         
         try {
             // Configure Apache HttpClient5 with SSL trust all for development
@@ -60,7 +70,10 @@ public class AppConfig {
         }
         
         // Add interceptor to set default headers for all requests
-        restTemplate.setInterceptors(Collections.singletonList(
+        restTemplate.setInterceptors(Arrays.asList(
+            // Add our logging interceptor first
+            restTemplateLoggingInterceptor,
+            // Then add the default headers interceptor
             (request, body, execution) -> {
                 HttpHeaders headers = request.getHeaders();
                 

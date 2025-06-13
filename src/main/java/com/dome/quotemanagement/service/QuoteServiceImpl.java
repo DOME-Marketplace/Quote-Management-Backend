@@ -4,6 +4,7 @@ import com.dome.quotemanagement.dto.tmforum.AttachmentRefOrValueDTO;
 import com.dome.quotemanagement.dto.tmforum.QuoteDTO;
 import com.dome.quotemanagement.dto.tmforum.QuoteItemDTO;
 import com.dome.quotemanagement.dto.tmforum.NoteDTO;
+import com.dome.quotemanagement.dto.NotificationRequestDTO;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,6 +32,7 @@ public class QuoteServiceImpl implements QuoteService {
     
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
+    private final NotificationService notificationService;
     
     @Value("${tmforum.api.base-url}")
     private String tmforumBaseUrl;
@@ -87,7 +89,6 @@ public class QuoteServiceImpl implements QuoteService {
         log.debug("Create quote parameters - customerMessage: '{}', customerIdRef: '{}', providerIdRef: '{}', productOfferingId: '{}'", 
                   customerMessage, customerIdRef, providerIdRef, productOfferingId);
         
-        // Create minimal JSON payload manually to ensure exact format
         try {
             // Build a minimal JSON payload that conforms to TMForum standards
             String jsonPayload = buildCreateQuoteJson(customerMessage, customerIdRef, providerIdRef, productOfferingId);
@@ -103,6 +104,19 @@ public class QuoteServiceImpl implements QuoteService {
             
             QuoteDTO response = restTemplate.postForObject(url, request, QuoteDTO.class);
             log.info("Received response from TMForum API: {}", response);
+
+            // Send notification after successful quote creation
+            if (response != null && response.getId() != null) {
+                NotificationRequestDTO notification = NotificationRequestDTO.builder()
+                    .seller(providerIdRef)
+                    .customer(customerIdRef)
+                    .message("New quote created with ID: " + response.getId() + 
+                            (customerMessage != null ? "\nMessage: " + customerMessage : ""))
+                    .build();
+                
+                notificationService.sendNotification(notification);
+            }
+            
             return response;
             
         } catch (Exception e) {
@@ -259,6 +273,43 @@ public class QuoteServiceImpl implements QuoteService {
             ).getBody();
             
             log.info("Received updated quote from TMForum API: {}", updatedQuote);
+
+            // Send notification to customer about the new document
+            if (updatedQuote != null) {
+                // Find customer ID from relatedParty
+                String customerId = updatedQuote.getRelatedParty().stream()
+                    .filter(party -> "customer".equals(party.getRole()))
+                    .findFirst()
+                    .map(party -> party.getId())
+                    .orElse(null);
+
+                // Find provider ID from relatedParty
+                String providerId = updatedQuote.getRelatedParty().stream()
+                    .filter(party -> "seller".equals(party.getRole()))
+                    .findFirst()
+                    .map(party -> party.getId())
+                    .orElse(null);
+
+                if (customerId != null && providerId != null) {
+                    String message = String.format(
+                        "A new document has been uploaded to your quote (ID: %s):\n" +
+                        "Document: %s\n" +
+                        "Description: %s",
+                        quoteId,
+                        file.getOriginalFilename(),
+                        description != null && !description.isEmpty() ? description : "No description provided"
+                    );
+
+                    NotificationRequestDTO notification = NotificationRequestDTO.builder()
+                        .seller(providerId)
+                        .customer(customerId)
+                        .message(message)
+                        .build();
+
+                    notificationService.sendNotification(notification);
+                }
+            }
+            
             return Optional.ofNullable(updatedQuote);
             
         } catch (IllegalArgumentException e) {
