@@ -7,7 +7,7 @@ import java.util.Optional;
 
 public interface QuoteService {
     List<QuoteDTO> findAllQuotes();
-    List<QuoteDTO> findQuotesByUser(String customerId);
+    List<QuoteDTO> findQuotesByUser(String userId, String role);
     Optional<QuoteDTO> findById(String id);
     QuoteDTO create(String customerMessage, String customerIdRef, String providerIdRef, String productOfferingId);
     Optional<QuoteDTO> updateQuoteStatus(String quoteId, String statusValue);

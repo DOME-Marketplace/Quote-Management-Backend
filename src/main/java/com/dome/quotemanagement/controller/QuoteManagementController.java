@@ -55,30 +55,37 @@ public class QuoteManagementController {
     @GetMapping("/quoteByUser/{customerId}")
     @Operation(
         summary = "List quotes by user", 
-        description = "Retrieves a list of quotes related to a specific customer. Backend calls: /quote?limit=100 with filtering"
+        description = "Retrieves a list of quotes related to a specific customer and role. Backend calls: /quote?limit=100 with filtering"
     )
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "Successfully retrieved user quotes",
                     content = @Content(mediaType = "application/json", schema = @Schema(implementation = QuoteDTO.class))),
-        @ApiResponse(responseCode = "400", description = "Invalid customer ID"),
+        @ApiResponse(responseCode = "400", description = "Invalid customer ID or role"),
         @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     public ResponseEntity<List<QuoteDTO>> listQuotesByUser(
             @Parameter(description = "Customer ID to filter quotes by", required = true)
-            @PathVariable String customerId) {
-        log.info("Received request to list quotes for customer: '{}'", customerId);
+            @PathVariable String customerId,
+            @Parameter(description = "Role to filter quotes by (e.g., 'Customer', 'Seller')", required = true)
+            @RequestParam String role) {
+        log.info("Received request to list quotes for customer: '{}' with role: '{}'", customerId, role);
         
         if (customerId == null || customerId.trim().isEmpty()) {
             log.warn("Invalid customer ID provided: '{}'", customerId);
             return ResponseEntity.badRequest().build();
         }
         
+        if (role == null || role.trim().isEmpty()) {
+            log.warn("Invalid role provided: '{}'", role);
+            return ResponseEntity.badRequest().build();
+        }
+        
         try {
-            List<QuoteDTO> quotes = quoteService.findQuotesByUser(customerId);
-            log.info("Successfully retrieved {} quotes for customer: '{}'", quotes.size(), customerId);
+            List<QuoteDTO> quotes = quoteService.findQuotesByUser(customerId, role);
+            log.info("Successfully retrieved {} quotes for customer: '{}' with role: '{}'", quotes.size(), customerId, role);
             return ResponseEntity.ok(quotes);
         } catch (Exception e) {
-            log.error("Error listing quotes for customer '{}': {}", customerId, e.getMessage(), e);
+            log.error("Error listing quotes for customer '{}' with role '{}': {}", customerId, role, e.getMessage(), e);
             throw e;
         }
     }

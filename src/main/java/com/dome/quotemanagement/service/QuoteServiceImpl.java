@@ -51,16 +51,16 @@ public class QuoteServiceImpl implements QuoteService {
     }
     
     @Override
-    public List<QuoteDTO> findQuotesByUser(String customerId) {
+    public List<QuoteDTO> findQuotesByUser(String userId, String role) {
         String url = tmforumBaseUrl.trim() + "/quoteManagement/v4/quote?limit=100";
-        log.debug("Calling external TMForum API to get quotes for customer {}: {}", customerId, url);
+        log.debug("Calling external TMForum API to get quotes for customer {} with role {}: {}", userId, role, url);
         try {
             QuoteDTO[] quotes = restTemplate.getForObject(url, QuoteDTO[].class);
             List<QuoteDTO> allQuotes = Arrays.asList(quotes != null ? quotes : new QuoteDTO[0]);
             
-            // Filter quotes based on customerId matching RelatedParty id
+            // Filter quotes based on userId and role matching RelatedParty
             return allQuotes.stream()
-                    .filter(quote -> isQuoteRelatedToCustomer(quote, customerId))
+                    .filter(quote -> isQuoteRelatedToUser(quote, userId, role))
                     .collect(java.util.stream.Collectors.toList());
                     
         } catch (Exception e) {
@@ -658,7 +658,7 @@ public class QuoteServiceImpl implements QuoteService {
                 ObjectNode customerParty = objectMapper.createObjectNode();
                 customerParty.put("id", customerIdRef);
                 customerParty.put("href", customerIdRef);
-                customerParty.put("role", "customer");
+                customerParty.put("role", "Customer");
                 customerParty.put("@referredType", "individual");
                 relatedPartyArray.add(customerParty);
             }
@@ -668,7 +668,7 @@ public class QuoteServiceImpl implements QuoteService {
                 ObjectNode providerParty = objectMapper.createObjectNode();
                 providerParty.put("id", providerIdRef);
                 providerParty.put("href", providerIdRef);
-                providerParty.put("role", "seller");
+                providerParty.put("role", "Seller");
                 providerParty.put("@referredType", "organization");
                 relatedPartyArray.add(providerParty);
             }
@@ -730,15 +730,19 @@ public class QuoteServiceImpl implements QuoteService {
     }
         
     /**
-     * Check if a quote is related to the specified customer by looking at RelatedParty objects
+     * Check if a quote is related to the specified user by looking at RelatedParty objects
+     * and matching both the ID and role (case-insensitive)
      */
-    private boolean isQuoteRelatedToCustomer(QuoteDTO quote, String customerId) {
+    private boolean isQuoteRelatedToUser(QuoteDTO quote, String userId, String role) {
         if (quote.getRelatedParty() == null || quote.getRelatedParty().isEmpty()) {
             return false;
         }
         
         return quote.getRelatedParty().stream()
-                .anyMatch(relatedParty -> customerId.equals(relatedParty.getId()));
+                .anyMatch(relatedParty -> 
+                    userId.equals(relatedParty.getId()) && 
+                    role != null && 
+                    role.equalsIgnoreCase(relatedParty.getRole()));
     }
     
     /**
