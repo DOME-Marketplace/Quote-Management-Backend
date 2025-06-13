@@ -1,115 +1,210 @@
 package com.dome.quotemanagement.service;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.dome.quotemanagement.dto.tmforum.QuoteDTO;
+import com.dome.quotemanagement.dto.tmforum.QuoteItemDTO;
+import com.dome.quotemanagement.dto.tmforum.NoteDTO;
+import com.dome.quotemanagement.dto.NotificationRequestDTO;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
+
+import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 
+@Slf4j
 @Service
+@RequiredArgsConstructor
 public class QuoteExpirationScheduler {
-    private static final Logger logger = LoggerFactory.getLogger(QuoteExpirationScheduler.class);
-    private static final String QUOTES_ENDPOINT = "http://localhost:8080/quoteManagement/getAllQuotes";
-    private static final String UPDATE_STATUS_ENDPOINT = "http://localhost:8080/quoteManagement/updateQuoteStatus/";
-    private static final String ADD_NOTE_ENDPOINT = "http://localhost:8080/quoteManagement/addNoteToQuote/";
-    private static final String CANCELLED_STATUS = "cancelled";
-    private static final String EXPIRATION_NOTE = "Quote cancelled by the system due to expiration.";
 
-    @Autowired
-    private RestTemplate restTemplate;
+    private final RestTemplate restTemplate;
+    private final ObjectMapper objectMapper;
+    private final NotificationService notificationService;
 
-    @Autowired
-    private ObjectMapper objectMapper;
+    @Value("${tmforum.api.base-url}")
+    private String tmforumBaseUrl;
 
-    /**
-     * Scheduled task that runs every day at midnight to check for expired quotes
-     */
-    @Scheduled(cron = "0 0 0 * * ?")
+    @Scheduled(cron = "0 0 0 * * ?") // Run at midnight every day
     public void checkExpiredQuotes() {
+        log.info("Starting scheduled check for expired quotes");
         try {
-            logger.info("Starting scheduled check for expired quotes");
+            // Get all quotes
+            String url = tmforumBaseUrl.trim() + "/quoteManagement/v4/quote?limit=100";
+            QuoteDTO[] quotes = restTemplate.getForObject(url, QuoteDTO[].class);
+            List<QuoteDTO> allQuotes = Arrays.asList(quotes != null ? quotes : new QuoteDTO[0]);
 
-            // Fetch all quotes
-            List<Map<String, Object>> quotes = restTemplate.getForObject(QUOTES_ENDPOINT, List.class);
-
-            if (quotes == null || quotes.isEmpty()) {
-                logger.info("No quotes found to check");
-                return;
-            }
-
-            LocalDate today = LocalDate.now();
-            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
-
-            for (Map<String, Object> quote : quotes) {
-                try {
-                    String quoteId = String.valueOf(quote.get("id"));
-                    String currentState = (String) quote.get("state");
-
-                    // Skip if already cancelled
-                    if (CANCELLED_STATUS.equalsIgnoreCase(currentState)) {
-                        continue;
-                    }
-
-                    // Check expectedQuoteCompletionDate first
-                    String expectedDateStr = (String) quote.get("expectedQuoteCompletionDate");
-                    if (expectedDateStr != null && !expectedDateStr.isEmpty()) {
-                        LocalDate expectedDate = LocalDate.parse(expectedDateStr, formatter);
-                        if (expectedDate.isBefore(today)) {
-                            handleExpiredQuote(quoteId);
-                        }
-                        continue;
-                    }
-
-                    // If expectedQuoteCompletionDate is not present, check requestedQuoteCompletionDate
-                    String requestedDateStr = (String) quote.get("requestedQuoteCompletionDate");
-                    if (requestedDateStr != null && !requestedDateStr.isEmpty()) {
-                        LocalDate requestedDate = LocalDate.parse(requestedDateStr, formatter);
-                        if (requestedDate.isBefore(today)) {
-                            handleExpiredQuote(quoteId);
-                        }
-                    }
-                } catch (Exception e) {
-                    logger.error("Error processing quote: {}", quote, e);
+            // Check each quote
+            for (QuoteDTO quote : allQuotes) {
+                if (isQuoteExpired(quote)) {
+                    handleExpiredQuote(quote);
                 }
             }
         } catch (Exception e) {
-            logger.error("Error in checkExpiredQuotes: ", e);
+            log.error("Error checking expired quotes: {}", e.getMessage(), e);
         }
     }
 
-    private void handleExpiredQuote(String quoteId) {
+    private boolean isQuoteExpired(QuoteDTO quote) {
+        if (quote.getRequestedQuoteCompletionDate() == null) {
+            return false;
+        }
+
+        LocalDateTime completionDate = quote.getRequestedQuoteCompletionDate();
+        LocalDateTime now = LocalDateTime.now();
+
+        return now.isAfter(completionDate) && "inProgress".equals(quote.getState());
+    }
+
+    private void handleExpiredQuote(QuoteDTO quote) {
+        log.info("Handling expired quote: {}", quote.getId());
         try {
             // Update quote status to cancelled
-            String updateStatusUrl = UPDATE_STATUS_ENDPOINT + quoteId + "?statusValue=" + CANCELLED_STATUS;
-            restTemplate.exchange(
-                updateStatusUrl,
-                HttpMethod.PATCH,
-                null,
-                Void.class
-            );
+            String url = tmforumBaseUrl.trim() + "/quoteManagement/v4/quote/" + quote.getId();
+            
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("Accept", "application/json");
 
-            // Add note to quote
-            String addNoteUrl = ADD_NOTE_ENDPOINT + quoteId + "?userId=system&messageContent=" + EXPIRATION_NOTE;
-            restTemplate.exchange(
-                addNoteUrl,
-                HttpMethod.PATCH,
-                null,
-                Void.class
-            );
+            // Create status update payload
+            String jsonPayload = buildStatusUpdateJson("cancelled", quote);
+            HttpEntity<String> request = new HttpEntity<>(jsonPayload, headers);
 
-            logger.info("Successfully processed expired quote: {}", quoteId);
+            restTemplate.exchange(url, org.springframework.http.HttpMethod.PATCH, request, QuoteDTO.class);
+
+            // Add note about expiration
+            String noteUrl = tmforumBaseUrl.trim() + "/quoteManagement/v4/quote/" + quote.getId();
+            String notePayload = buildNoteUpdateJson(
+                "Quote automatically cancelled due to expiration of requested completion date.",
+                "SYSTEM",
+                quote
+            );
+            HttpEntity<String> noteRequest = new HttpEntity<>(notePayload, headers);
+            restTemplate.exchange(noteUrl, org.springframework.http.HttpMethod.PATCH, noteRequest, QuoteDTO.class);
+
+            // Send notification to customer and provider
+            sendExpirationNotifications(quote);
+
+            log.info("Successfully handled expired quote: {}", quote.getId());
         } catch (Exception e) {
-            logger.error("Error handling expired quote {}: ", quoteId, e);
+            log.error("Error handling expired quote {}: {}", quote.getId(), e.getMessage(), e);
+        }
+    }
+
+    private void sendExpirationNotifications(QuoteDTO quote) {
+        try {
+            // Find customer and provider IDs
+            String customerId = quote.getRelatedParty().stream()
+                .filter(party -> "customer".equals(party.getRole()))
+                .findFirst()
+                .map(party -> party.getId())
+                .orElse(null);
+
+            String providerId = quote.getRelatedParty().stream()
+                .filter(party -> "seller".equals(party.getRole()))
+                .findFirst()
+                .map(party -> party.getId())
+                .orElse(null);
+
+            if (customerId != null && providerId != null) {
+                String message = String.format(
+                    "Quote (ID: %s) has been automatically cancelled due to expiration of the requested completion date (%s).",
+                    quote.getId(),
+                    quote.getRequestedQuoteCompletionDate()
+                );
+
+                NotificationRequestDTO notification = NotificationRequestDTO.builder()
+                    .seller(providerId)
+                    .customer(customerId)
+                    .message(message)
+                    .build();
+
+                notificationService.sendNotification(notification);
+            }
+        } catch (Exception e) {
+            log.error("Error sending expiration notifications for quote {}: {}", quote.getId(), e.getMessage(), e);
+        }
+    }
+
+    private String buildStatusUpdateJson(String statusValue, QuoteDTO currentQuote) {
+        try {
+            ObjectNode updateJson = objectMapper.createObjectNode();
+            ArrayNode quoteItemArray = objectMapper.createArrayNode();
+            
+            if (currentQuote.getQuoteItem() != null && !currentQuote.getQuoteItem().isEmpty()) {
+                for (QuoteItemDTO quoteItem : currentQuote.getQuoteItem()) {
+                    ObjectNode quoteItemJson = objectMapper.createObjectNode();
+                    quoteItemJson.put("state", statusValue);
+                    
+                    if (quoteItem.getId() != null) {
+                        quoteItemJson.put("id", quoteItem.getId());
+                    }
+                    if (quoteItem.getAction() != null) {
+                        quoteItemJson.put("action", quoteItem.getAction());
+                    }
+                    if (quoteItem.getQuantity() != null) {
+                        quoteItemJson.put("quantity", quoteItem.getQuantity());
+                    }
+                    
+                    quoteItemArray.add(quoteItemJson);
+                }
+            }
+            
+            updateJson.set("quoteItem", quoteItemArray);
+            return objectMapper.writeValueAsString(updateJson);
+        } catch (Exception e) {
+            log.error("Error building status update JSON: {}", e.getMessage());
+            throw new RuntimeException("Failed to build status update JSON", e);
+        }
+    }
+
+    private String buildNoteUpdateJson(String messageContent, String userId, QuoteDTO currentQuote) {
+        try {
+            ObjectNode updateJson = objectMapper.createObjectNode();
+            ArrayNode noteArray = objectMapper.createArrayNode();
+            
+            if (currentQuote.getNote() != null && !currentQuote.getNote().isEmpty()) {
+                for (NoteDTO existingNote : currentQuote.getNote()) {
+                    ObjectNode existingNoteObject = objectMapper.createObjectNode();
+                    existingNoteObject.put("@type", "Note");
+                    if (existingNote.getText() != null) {
+                        existingNoteObject.put("text", existingNote.getText());
+                    }
+                    if (existingNote.getDate() != null) {
+                        String dateString = existingNote.getDate().atZone(java.time.ZoneOffset.UTC).toInstant().toString();
+                        existingNoteObject.put("date", dateString);
+                    }
+                    if (existingNote.getAuthor() != null) {
+                        existingNoteObject.put("author", existingNote.getAuthor());
+                    }
+                    if (existingNote.getId() != null) {
+                        existingNoteObject.put("id", existingNote.getId());
+                    }
+                    noteArray.add(existingNoteObject);
+                }
+            }
+            
+            ObjectNode newNoteObject = objectMapper.createObjectNode();
+            newNoteObject.put("@type", "Note");
+            newNoteObject.put("text", messageContent);
+            newNoteObject.put("date", LocalDateTime.now().toString());
+            newNoteObject.put("author", userId);
+            
+            noteArray.add(newNoteObject);
+            updateJson.set("note", noteArray);
+            
+            return objectMapper.writeValueAsString(updateJson);
+        } catch (Exception e) {
+            log.error("Error building note update JSON: {}", e.getMessage());
+            throw new RuntimeException("Failed to build note update JSON", e);
         }
     }
 }
