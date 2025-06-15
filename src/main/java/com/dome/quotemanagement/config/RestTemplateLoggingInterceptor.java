@@ -6,12 +6,12 @@ import org.springframework.http.client.ClientHttpRequestExecution;
 import org.springframework.http.client.ClientHttpRequestInterceptor;
 import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StreamUtils;
 
-import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.io.InputStreamReader;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.stream.Collectors;
 
 @Slf4j
 @Component
@@ -31,10 +31,13 @@ public class RestTemplateLoggingInterceptor implements ClientHttpRequestIntercep
             // Execute the request
             response = execution.execute(request, body);
             
-            // Log the response from TMForum
-            logTMForumResponse(request, response, System.currentTimeMillis() - startTime);
+            // Create a buffered response that can be read multiple times
+            BufferedClientHttpResponse bufferedResponse = new BufferedClientHttpResponse(response);
             
-            return response;
+            // Log the response from TMForum
+            logTMForumResponse(request, bufferedResponse, System.currentTimeMillis() - startTime);
+            
+            return bufferedResponse;
             
         } catch (Exception e) {
             long duration = System.currentTimeMillis() - startTime;
@@ -100,12 +103,54 @@ public class RestTemplateLoggingInterceptor implements ClientHttpRequestIntercep
     }
 
     private String readResponseBody(ClientHttpResponse response) {
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(response.getBody(), StandardCharsets.UTF_8))) {
-            return reader.lines().collect(Collectors.joining("\n"));
+        try {
+            return StreamUtils.copyToString(response.getBody(), StandardCharsets.UTF_8);
         } catch (Exception e) {
             log.warn("Failed to read TMForum response body: {}", e.getMessage());
             return "";
+        }
+    }
+
+    private static class BufferedClientHttpResponse implements ClientHttpResponse {
+        private final ClientHttpResponse response;
+        private byte[] body;
+
+        public BufferedClientHttpResponse(ClientHttpResponse response) {
+            this.response = response;
+        }
+
+        @Override
+        public InputStream getBody() throws IOException {
+            if (body == null) {
+                body = StreamUtils.copyToByteArray(response.getBody());
+            }
+            return new ByteArrayInputStream(body);
+        }
+
+        @Override
+        public void close() {
+            response.close();
+        }
+
+        // Delegate all other methods to the original response
+        @Override
+        public int getRawStatusCode() throws IOException {
+            return response.getRawStatusCode();
+        }
+
+        @Override
+        public String getStatusText() throws IOException {
+            return response.getStatusText();
+        }
+
+        @Override
+        public org.springframework.http.HttpHeaders getHeaders() {
+            return response.getHeaders();
+        }
+
+        @Override
+        public org.springframework.http.HttpStatusCode getStatusCode() throws IOException {
+            return response.getStatusCode();
         }
     }
 } 

@@ -20,5 +20,7 @@ public class RelatedPartyDTO {
     private String id;
     private String href;
     private String name;
+    
+    @JsonProperty("role")
     private String role;
 } 

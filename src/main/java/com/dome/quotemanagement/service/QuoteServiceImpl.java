@@ -13,6 +13,7 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
@@ -24,6 +25,8 @@ import java.util.List;
 import java.util.Optional;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
+import java.util.Collections;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -39,10 +42,21 @@ public class QuoteServiceImpl implements QuoteService {
     
     @Override
     public List<QuoteDTO> findAllQuotes() {
-        String url = tmforumBaseUrl.trim() + "/quoteManagement/v4/quote?limit=100";
+        String url = tmforumBaseUrl.trim() + "/quoteManagement/v4/quote?limit=1000";
         log.debug("Calling external TMForum API to get all quotes: {}", url);
         try {
-            QuoteDTO[] quotes = restTemplate.getForObject(url, QuoteDTO[].class);
+            HttpHeaders headers = new HttpHeaders();
+            headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+            HttpEntity<?> request = new HttpEntity<>(headers);
+            
+            var response = restTemplate.exchange(
+                url,
+                HttpMethod.GET,
+                request,
+                QuoteDTO[].class
+            );
+            
+            QuoteDTO[] quotes = response.getBody();
             return Arrays.asList(quotes != null ? quotes : new QuoteDTO[0]);
         } catch (Exception e) {
             log.error("Error calling TMForum API: {}", e.getMessage());
@@ -52,20 +66,67 @@ public class QuoteServiceImpl implements QuoteService {
     
     @Override
     public List<QuoteDTO> findQuotesByUser(String userId, String role) {
-        String url = tmforumBaseUrl.trim() + "/quoteManagement/v4/quote?limit=100";
-        log.debug("Calling external TMForum API to get quotes for customer {} with role {}: {}", userId, role, url);
+        String url = tmforumBaseUrl.trim() + "/quoteManagement/v4/quote?limit=1000";
+        log.debug("Calling external TMForum API: {}", url);
+        
         try {
-            QuoteDTO[] quotes = restTemplate.getForObject(url, QuoteDTO[].class);
-            List<QuoteDTO> allQuotes = Arrays.asList(quotes != null ? quotes : new QuoteDTO[0]);
+            HttpHeaders headers = new HttpHeaders();
+            headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+            HttpEntity<?> request = new HttpEntity<>(headers);
             
-            // Filter quotes based on userId and role matching RelatedParty
-            return allQuotes.stream()
-                    .filter(quote -> isQuoteRelatedToUser(quote, userId, role))
-                    .collect(java.util.stream.Collectors.toList());
-                    
+            ResponseEntity<QuoteDTO[]> response = restTemplate.exchange(
+                url,
+                HttpMethod.GET,
+                request,
+                QuoteDTO[].class
+            );
+            
+            QuoteDTO[] quotes = response.getBody();
+            if (quotes == null) {
+                log.warn("No quotes found in response");
+                return Collections.emptyList();
+            }
+            
+            log.info("Retrieved {} quotes from TMForum API", quotes.length);
+            
+            // Filter quotes based on user ID location and role
+            List<QuoteDTO> filteredQuotes = Arrays.stream(quotes)
+                .filter(quote -> {
+                    if ("Seller".equalsIgnoreCase(role)) {
+                        // Check if user is a seller (in Quote.RelatedParty)
+                        if (quote.getRelatedParty() == null) {
+                            return false;
+                        }
+                        return quote.getRelatedParty().stream()
+                            .anyMatch(party -> userId.equals(party.getId()));
+                    } else if ("Customer".equalsIgnoreCase(role)) {
+                        // Check if user is a buyer (in Quote.QuoteItem.RelatedParty)
+                        if (quote.getQuoteItem() == null) {
+                            return false;
+                        }
+                        return quote.getQuoteItem().stream()
+                            .anyMatch(item -> {
+                                if (item == null || item.getRelatedParty() == null) {
+                                    return false;
+                                }
+                                return item.getRelatedParty().stream()
+                                    .anyMatch(party -> userId.equals(party.getId()));
+                            });
+                    } else {
+                        log.warn("Invalid role provided: {}", role);
+                        return false;
+                    }
+                })
+                .collect(Collectors.toList());
+            
+            log.info("Filtered {} quotes for user {} with role {}: {} quotes found", 
+                quotes.length, userId, role, filteredQuotes.size());
+            
+            return filteredQuotes;
+            
         } catch (Exception e) {
-            log.error("Error calling TMForum API: {}", e.getMessage());
-            return Arrays.asList();
+            log.error("Error finding quotes by user: {}", e.getMessage(), e);
+            return Collections.emptyList();
         }
     }
     
@@ -74,10 +135,38 @@ public class QuoteServiceImpl implements QuoteService {
         String url = tmforumBaseUrl.trim() + "/quoteManagement/v4/quote/" + id;
         log.debug("Calling external TMForum API: {}", url);
         try {
-            QuoteDTO quote = restTemplate.getForObject(url, QuoteDTO.class);
+            HttpHeaders headers = new HttpHeaders();
+            headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+            HttpEntity<?> request = new HttpEntity<>(headers);
+            
+            var response = restTemplate.exchange(
+                url,
+                HttpMethod.GET,
+                request,
+                QuoteDTO.class
+            );
+            
+            QuoteDTO quote = response.getBody();
+            log.debug("Received quote from TMForum API: {}", quote);
+            
+            // Log the raw response for debugging
+            log.info("Raw response from TMForum API: {}", response.getBody());
+            
+            // Log related parties details
+            if (quote != null && quote.getRelatedParty() != null) {
+                quote.getRelatedParty().forEach(party -> {
+                    log.info("Related party details - ID: {}, Role: {}, Type: {}, BaseType: {}, ReferredType: {}", 
+                        party.getId(), 
+                        party.getRole(),
+                        party.getType(),
+                        party.getBaseType(),
+                        party.getReferredType());
+                });
+            }
+            
             return Optional.ofNullable(quote);
         } catch (Exception e) {
-            log.error("Error calling TMForum API: {}", e.getMessage());
+            log.error("Error calling TMForum API: {}", e.getMessage(), e);
             return Optional.empty();
         }
     }
@@ -104,6 +193,21 @@ public class QuoteServiceImpl implements QuoteService {
             
             QuoteDTO response = restTemplate.postForObject(url, request, QuoteDTO.class);
             log.info("Received response from TMForum API: {}", response);
+            
+            // Log the related parties from the response
+            if (response != null) {
+                log.info("Quote created with ID: {}", response.getId());
+                if (response.getRelatedParty() != null) {
+                    log.info("Related parties in response: {}", response.getRelatedParty());
+                    // Log each related party's details
+                    response.getRelatedParty().forEach(party -> {
+                        log.info("Related party - ID: {}, Role: {}, Type: {}", 
+                            party.getId(), party.getRole(), party.getReferredType());
+                    });
+                } else {
+                    log.warn("No related parties in response for quote: {}", response.getId());
+                }
+            }
 
             // Send notification after successful quote creation
             if (response != null && response.getId() != null) {
@@ -120,8 +224,8 @@ public class QuoteServiceImpl implements QuoteService {
             return response;
             
         } catch (Exception e) {
-            log.error("Error calling TMForum API: {}", e.getMessage());
-            throw e; // Re-throw the original exception to preserve HTTP status codes
+            log.error("Error creating quote: {}", e.getMessage(), e);
+            throw new RuntimeException("Failed to create quote", e);
         }
     }
     
@@ -322,8 +426,8 @@ public class QuoteServiceImpl implements QuoteService {
     }
 
     @Override
-    public Optional<QuoteDTO> updateQuoteDate(String quoteId, String date) {
-        log.debug("Updating quote date - quoteId: '{}', date: '{}'", quoteId, date);
+    public Optional<QuoteDTO> updateQuoteDate(String quoteId, String date, String dateType) {
+        log.debug("Updating quote date - quoteId: '{}', date: '{}', dateType: '{}'", quoteId, date, dateType);
         
         try {
             // First, get the current quote
@@ -333,11 +437,17 @@ public class QuoteServiceImpl implements QuoteService {
                 return Optional.empty();
             }
             
+            // Validate dateType
+            if (!"requested".equalsIgnoreCase(dateType) && !"expected".equalsIgnoreCase(dateType)) {
+                log.error("Invalid dateType: {}. Must be either 'requested' or 'expected'", dateType);
+                throw new IllegalArgumentException("Invalid dateType. Must be either 'requested' or 'expected'");
+            }
+            
             // Parse the user-friendly DD-MM-YYYY format and convert to ISO 8601
             String isoDate = convertDateToISO8601(date);
             
             // Create a minimal update payload with the converted date
-            String jsonPayload = buildDateUpdateJson(isoDate);
+            String jsonPayload = buildDateUpdateJson(isoDate, dateType);
             
             String url = tmforumBaseUrl.trim() + "/quoteManagement/v4/quote/" + quoteId;
             
@@ -622,10 +732,14 @@ public class QuoteServiceImpl implements QuoteService {
     /**
      * Build a JSON payload for date update
      */
-    private String buildDateUpdateJson(String date) {
+    private String buildDateUpdateJson(String date, String dateType) {
         try {
             ObjectNode updateJson = objectMapper.createObjectNode();
-            updateJson.put("requestedQuoteCompletionDate", date);
+            if ("requested".equalsIgnoreCase(dateType)) {
+                updateJson.put("requestedQuoteCompletionDate", date);
+            } else {
+                updateJson.put("expectedQuoteCompletionDate", date);
+            }
             return objectMapper.writeValueAsString(updateJson);
         } catch (Exception e) {
             log.error("Error building date update JSON: {}", e.getMessage());
@@ -650,18 +764,9 @@ public class QuoteServiceImpl implements QuoteService {
             Instant requestedCompletionDate = Instant.now().plusSeconds(30 * 24 * 60 * 60); // 30 days in seconds
             quoteJson.put("requestedQuoteCompletionDate", requestedCompletionDate.toString());
             
-            // Add relatedParty array
+            // Add relatedParty array for seller/provider only
+            // The seller/provider is placed at the Quote level since they are the main party responsible for the quote
             ArrayNode relatedPartyArray = objectMapper.createArrayNode();
-            
-            // Add customer related party if provided
-            if (customerIdRef != null && !customerIdRef.trim().isEmpty()) {
-                ObjectNode customerParty = objectMapper.createObjectNode();
-                customerParty.put("id", customerIdRef);
-                customerParty.put("href", customerIdRef);
-                customerParty.put("role", "Customer");
-                customerParty.put("@referredType", "individual");
-                relatedPartyArray.add(customerParty);
-            }
             
             // Add provider related party if provided
             if (providerIdRef != null && !providerIdRef.trim().isEmpty()) {
@@ -684,6 +789,21 @@ public class QuoteServiceImpl implements QuoteService {
             quoteItem.put("quantity", 1);
             quoteItem.set("note", objectMapper.createObjectNode()); // Empty note object
             
+            // Add customer as relatedParty in the quoteItem
+            // The buyer/customer is placed at the QuoteItem level to distinguish them from the seller
+            // This is a workaround for the RelatedParty.role bug, where we use location instead of role to identify the party type
+            if (customerIdRef != null && !customerIdRef.trim().isEmpty()) {
+                ArrayNode quoteItemRelatedPartyArray = objectMapper.createArrayNode();
+                ObjectNode customerParty = objectMapper.createObjectNode();
+                customerParty.put("@type", "RelatedParty");  // Add @type field
+                customerParty.put("id", customerIdRef);
+                customerParty.put("href", customerIdRef);
+                customerParty.put("role", "Customer");
+                customerParty.put("@referredType", "individual");
+                quoteItemRelatedPartyArray.add(customerParty);
+                quoteItem.set("relatedParty", quoteItemRelatedPartyArray);
+            }
+            
             // Add productOffering reference if productOfferingId is provided
             if (productOfferingId != null && !productOfferingId.trim().isEmpty()) {
                 ObjectNode productOffering = objectMapper.createObjectNode();
@@ -695,8 +815,11 @@ public class QuoteServiceImpl implements QuoteService {
             quoteItemArray.add(quoteItem);
             quoteJson.set("quoteItem", quoteItemArray);
             
-            // Convert to JSON string
-            return objectMapper.writeValueAsString(quoteJson);
+            // Log the final JSON for debugging
+            String jsonPayload = objectMapper.writeValueAsString(quoteJson);
+            log.info("Created quote JSON payload: {}", jsonPayload);
+            
+            return jsonPayload;
             
         } catch (Exception e) {
             log.error("Error building quote JSON: {}", e.getMessage());
@@ -729,22 +852,6 @@ public class QuoteServiceImpl implements QuoteService {
         }
     }
         
-    /**
-     * Check if a quote is related to the specified user by looking at RelatedParty objects
-     * and matching both the ID and role (case-insensitive)
-     */
-    private boolean isQuoteRelatedToUser(QuoteDTO quote, String userId, String role) {
-        if (quote.getRelatedParty() == null || quote.getRelatedParty().isEmpty()) {
-            return false;
-        }
-        
-        return quote.getRelatedParty().stream()
-                .anyMatch(relatedParty -> 
-                    userId.equals(relatedParty.getId()) && 
-                    role != null && 
-                    role.equalsIgnoreCase(relatedParty.getRole()));
-    }
-    
     /**
      * Create AttachmentRefOrValueDTO from uploaded file
      */
@@ -784,6 +891,19 @@ public class QuoteServiceImpl implements QuoteService {
         } catch (Exception e) {
             log.error("Error creating attachment from file: {}", e.getMessage());
             throw new RuntimeException("Failed to process uploaded file: " + e.getMessage(), e);
+        }
+    }
+
+    private void writeLogToFile(String content) {
+        try {
+            java.nio.file.Files.write(
+                java.nio.file.Paths.get("quote_search_debug.log"),
+                content.getBytes(),
+                java.nio.file.StandardOpenOption.CREATE,
+                java.nio.file.StandardOpenOption.TRUNCATE_EXISTING
+            );
+        } catch (Exception e) {
+            log.error("Error writing debug log to file: {}", e.getMessage(), e);
         }
     }
 }

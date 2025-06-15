@@ -26,4 +26,5 @@ public class QuoteItemDTO {
     private Integer quantity;
     private String state;
     private List<AttachmentRefOrValueDTO> attachment;
+    private List<RelatedPartyDTO> relatedParty;
 } 

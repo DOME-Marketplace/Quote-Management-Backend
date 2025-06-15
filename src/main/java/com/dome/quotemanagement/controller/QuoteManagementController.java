@@ -52,26 +52,28 @@ public class QuoteManagementController {
         }
     }
 
-    @GetMapping("/quoteByUser/{customerId}")
+    @GetMapping("/quoteByUser/{userId}")
     @Operation(
         summary = "List quotes by user", 
-        description = "Retrieves a list of quotes related to a specific customer and role. Backend calls: /quote?limit=100 with filtering"
+        description = "Retrieves a list of quotes related to a specific user and role. The role determines where to look for the user ID: " +
+                     "- If role is 'Customer', looks for the ID in Quote.QuoteItem.RelatedParty " +
+                     "- If role is 'Seller', looks for the ID in Quote.RelatedParty"
     )
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "Successfully retrieved user quotes",
                     content = @Content(mediaType = "application/json", schema = @Schema(implementation = QuoteDTO.class))),
-        @ApiResponse(responseCode = "400", description = "Invalid customer ID or role"),
+        @ApiResponse(responseCode = "400", description = "Invalid user ID or role"),
         @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     public ResponseEntity<List<QuoteDTO>> listQuotesByUser(
-            @Parameter(description = "Customer ID to filter quotes by", required = true)
-            @PathVariable String customerId,
-            @Parameter(description = "Role to filter quotes by (e.g., 'Customer', 'Seller')", required = true)
+            @Parameter(description = "User ID to filter quotes by", required = true)
+            @PathVariable String userId,
+            @Parameter(description = "Role to filter quotes by ('Customer' or 'Seller')", required = true)
             @RequestParam String role) {
-        log.info("Received request to list quotes for customer: '{}' with role: '{}'", customerId, role);
+        log.info("Received request to list quotes for user: '{}' with role: '{}'", userId, role);
         
-        if (customerId == null || customerId.trim().isEmpty()) {
-            log.warn("Invalid customer ID provided: '{}'", customerId);
+        if (userId == null || userId.trim().isEmpty()) {
+            log.warn("Invalid user ID provided: '{}'", userId);
             return ResponseEntity.badRequest().build();
         }
         
@@ -81,11 +83,11 @@ public class QuoteManagementController {
         }
         
         try {
-            List<QuoteDTO> quotes = quoteService.findQuotesByUser(customerId, role);
-            log.info("Successfully retrieved {} quotes for customer: '{}' with role: '{}'", quotes.size(), customerId, role);
+            List<QuoteDTO> quotes = quoteService.findQuotesByUser(userId, role);
+            log.info("Successfully retrieved {} quotes for user: '{}' with role: '{}'", quotes.size(), userId, role);
             return ResponseEntity.ok(quotes);
         } catch (Exception e) {
-            log.error("Error listing quotes for customer '{}' with role '{}': {}", customerId, role, e.getMessage(), e);
+            log.error("Error listing quotes for user '{}' with role '{}': {}", userId, role, e.getMessage(), e);
             throw e;
         }
     }
@@ -270,26 +272,29 @@ public class QuoteManagementController {
     @PatchMapping("/updateQuoteDate/{id}")
     @Operation(
         summary = "Update quote completion date", 
-        description = "Updates the requested completion date for a quote. Date format: DD-MM-YYYY. Backend calls: /quote/{id}"
+        description = "Updates either the requested or expected completion date for a quote. Date format: DD-MM-YYYY. Backend calls: /quote/{id}"
     )
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "Quote date updated successfully",
                     content = @Content(mediaType = "application/json", schema = @Schema(implementation = QuoteDTO.class))),
         @ApiResponse(responseCode = "404", description = "Quote not found"),
-        @ApiResponse(responseCode = "400", description = "Invalid date format"),
+        @ApiResponse(responseCode = "400", description = "Invalid date format or dateType"),
         @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     public ResponseEntity<QuoteDTO> updateQuoteDate(
             @Parameter(description = "Quote ID", required = true)
             @PathVariable String id,
             @Parameter(description = "Completion date in DD-MM-YYYY format (e.g., 31-12-2024)", required = true)
-            @RequestParam String date) {
-        log.info("Received request to update quote date - quoteId: '{}', date: '{}'", id, date);
+            @RequestParam String date,
+            @Parameter(description = "Type of date to update: 'requested' or 'expected'", required = true)
+            @RequestParam String dateType)
+    {
+        log.info("Received request to update quote date - quoteId: '{}', date: '{}', dateType: '{}'", id, date, dateType);
         
         try {
-            return quoteService.updateQuoteDate(id, date)
+            return quoteService.updateQuoteDate(id, date, dateType)
                     .map(quote -> {
-                        log.info("Successfully updated quote date - quoteId: '{}', date: '{}'", id, date);
+                        log.info("Successfully updated quote date - quoteId: '{}', date: '{}', dateType: '{}'", id, date, dateType);
                         return ResponseEntity.ok(quote);
                     })
                     .orElseGet(() -> {
@@ -297,10 +302,10 @@ public class QuoteManagementController {
                         return ResponseEntity.notFound().build();
                     });
         } catch (IllegalArgumentException e) {
-            log.warn("Invalid date format for quote update - quoteId: '{}', date: '{}': {}", id, date, e.getMessage());
+            log.warn("Invalid date format or dateType for quote update - quoteId: '{}', date: '{}', dateType: '{}': {}", id, date, dateType, e.getMessage());
             throw e;
         } catch (Exception e) {
-            log.error("Error updating quote date - quoteId: '{}', date: '{}': {}", id, date, e.getMessage(), e);
+            log.error("Error updating quote date - quoteId: '{}', date: '{}', dateType: '{}': {}", id, date, dateType, e.getMessage(), e);
             throw e;
         }
     }

@@ -2,10 +2,12 @@ package com.dome.quotemanagement.config;
 
 import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
 import org.apache.hc.client5.http.impl.classic.HttpClients;
+import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManager;
 import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManagerBuilder;
 import org.apache.hc.client5.http.ssl.SSLConnectionSocketFactoryBuilder;
 import org.apache.hc.client5.http.ssl.TrustAllStrategy;
 import org.apache.hc.core5.ssl.SSLContextBuilder;
+import org.apache.hc.core5.util.TimeValue;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -14,6 +16,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 
 import javax.net.ssl.*;
 import java.time.Duration;
@@ -26,6 +29,9 @@ public class AppConfig {
     @Autowired
     private RestTemplateLoggingInterceptor restTemplateLoggingInterceptor;
 
+    @Value("${spring.profiles.active:local}")
+    private String activeProfile;
+
     @Bean
     public RestTemplate restTemplate(RestTemplateBuilder builder) {
         RestTemplate restTemplate = builder
@@ -36,33 +42,35 @@ public class AppConfig {
         try {
             // Configure Apache HttpClient5 with SSL trust all for development
             //TODO: Change the certificate for PROD
-/*             TrustManager[] trustAllCerts = new TrustManager[] {
-                new X509TrustManager() {
-                    public X509Certificate[] getAcceptedIssuers() { return null; }
-                    public void checkClientTrusted(X509Certificate[] certs, String authType) { }
-                    public void checkServerTrusted(X509Certificate[] certs, String authType) { }
-                }  
-            }; */
-
-            
             SSLContext sslContext = SSLContextBuilder.create()
                     .loadTrustMaterial(TrustAllStrategy.INSTANCE)
                     .build();
             
-            CloseableHttpClient httpClient = HttpClients.custom()
-                    .setConnectionManager(
-                        PoolingHttpClientConnectionManagerBuilder.create()
-                                .setSSLSocketFactory(
-                                    SSLConnectionSocketFactoryBuilder.create()
-                                            .setSslContext(sslContext)
-                                            .setHostnameVerifier((hostname, session) -> true)
-                                            .build())
+            // Create connection manager with pooling
+            PoolingHttpClientConnectionManager connectionManager = PoolingHttpClientConnectionManagerBuilder.create()
+                    .setSSLSocketFactory(
+                        SSLConnectionSocketFactoryBuilder.create()
+                                .setSslContext(sslContext)
+                                .setHostnameVerifier((hostname, session) -> true)
                                 .build())
+                    .setMaxConnTotal(100) // Maximum total connections
+                    .setMaxConnPerRoute(20) // Maximum connections per route
+                    .setValidateAfterInactivity(TimeValue.ofSeconds(30)) // Validate connections after inactivity
+                    .build();
+            
+            CloseableHttpClient httpClient = HttpClients.custom()
+                    .setConnectionManager(connectionManager)
+                    .setKeepAliveStrategy((response, context) -> TimeValue.ofSeconds(60)) // Keep-alive duration
                     .build();
             
             // Use Apache HttpClient5 instead of default SimpleClientHttpRequestFactory
             HttpComponentsClientHttpRequestFactory requestFactory = 
                 new HttpComponentsClientHttpRequestFactory(httpClient);
+            
+            // Set timeouts
+            requestFactory.setConnectTimeout(30000); // 30 seconds
+            requestFactory.setConnectionRequestTimeout(30000); // 30 seconds
+            
             restTemplate.setRequestFactory(requestFactory);
             
         } catch (Exception e) {
