@@ -20,7 +20,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, Object>> handleHttpClientErrorException(
             HttpClientErrorException ex, WebRequest request) {
         
-        log.error("HTTP Client Error: {} - Response: {}", ex.getMessage(), ex.getResponseBodyAsString());
+        log.error("HTTP Client Error: {} - Response: {}", ex.getMessage(), ex.getResponseBodyAsString(), ex);
         
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("timestamp", LocalDateTime.now());
@@ -54,7 +54,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, Object>> handleQuoteManagementException(
             QuoteManagementException ex, WebRequest request) {
         
-        log.error("Quote Management Error: {}", ex.getMessage());
+        log.error("Quote Management Error: {}", ex.getMessage(), ex);
         
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("timestamp", LocalDateTime.now());
@@ -70,7 +70,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, Object>> handleRuntimeException(
             RuntimeException ex, WebRequest request) {
         
-        log.error("Runtime Error: {}", ex.getMessage());
+        log.error("Runtime Error: {}", ex.getMessage(), ex);
         
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("timestamp", LocalDateTime.now());
@@ -86,7 +86,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, Object>> handleGenericException(
             Exception ex, WebRequest request) {
         
-        log.error("Unexpected Error: {}", ex.getMessage());
+        log.error("Unexpected Error: {}", ex.getMessage(), ex);
         
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("timestamp", LocalDateTime.now());

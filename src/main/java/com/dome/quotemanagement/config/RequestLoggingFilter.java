@@ -51,6 +51,9 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
             // Log outgoing response
             logOutgoingResponse(wrappedRequest, wrappedResponse, System.currentTimeMillis() - startTime);
             
+        } catch (Exception ex) {
+            log.error("Exception during request processing: {}", ex.getMessage(), ex);
+            throw ex;
         } finally {
             // Important: Copy response content back
             wrappedResponse.copyBodyToResponse();
