@@ -522,6 +522,31 @@ public class QuoteServiceImpl implements QuoteService {
                         quoteItemJson.put("quantity", quoteItem.getQuantity());
                     }
                     
+                    // CRITICAL: Preserve relatedParty information to maintain customer filtering
+                    if (quoteItem.getRelatedParty() != null && !quoteItem.getRelatedParty().isEmpty()) {
+                        ArrayNode relatedPartyArray = objectMapper.createArrayNode();
+                        for (com.dome.quotemanagement.dto.tmforum.RelatedPartyDTO relatedParty : quoteItem.getRelatedParty()) {
+                            ObjectNode relatedPartyObject = objectMapper.createObjectNode();
+                            if (relatedParty.getId() != null) {
+                                relatedPartyObject.put("id", relatedParty.getId());
+                            }
+                            if (relatedParty.getHref() != null) {
+                                relatedPartyObject.put("href", relatedParty.getHref());
+                            }
+                            if (relatedParty.getRole() != null) {
+                                relatedPartyObject.put("role", relatedParty.getRole());
+                            }
+                            if (relatedParty.getReferredType() != null) {
+                                relatedPartyObject.put("@referredType", relatedParty.getReferredType());
+                            }
+                            if (relatedParty.getType() != null) {
+                                relatedPartyObject.put("@type", relatedParty.getType());
+                            }
+                            relatedPartyArray.add(relatedPartyObject);
+                        }
+                        quoteItemJson.set("relatedParty", relatedPartyArray);
+                    }
+                    
                     quoteItemArray.add(quoteItemJson);
                 }
             } else {
@@ -618,6 +643,31 @@ public class QuoteServiceImpl implements QuoteService {
                 }
                 if (firstQuoteItem.getState() != null) {
                     quoteItemJson.put("state", firstQuoteItem.getState());
+                }
+                
+                // CRITICAL: Preserve relatedParty information to maintain customer filtering
+                if (firstQuoteItem.getRelatedParty() != null && !firstQuoteItem.getRelatedParty().isEmpty()) {
+                    ArrayNode relatedPartyArray = objectMapper.createArrayNode();
+                    for (com.dome.quotemanagement.dto.tmforum.RelatedPartyDTO relatedParty : firstQuoteItem.getRelatedParty()) {
+                        ObjectNode relatedPartyObject = objectMapper.createObjectNode();
+                        if (relatedParty.getId() != null) {
+                            relatedPartyObject.put("id", relatedParty.getId());
+                        }
+                        if (relatedParty.getHref() != null) {
+                            relatedPartyObject.put("href", relatedParty.getHref());
+                        }
+                        if (relatedParty.getRole() != null) {
+                            relatedPartyObject.put("role", relatedParty.getRole());
+                        }
+                        if (relatedParty.getReferredType() != null) {
+                            relatedPartyObject.put("@referredType", relatedParty.getReferredType());
+                        }
+                        if (relatedParty.getType() != null) {
+                            relatedPartyObject.put("@type", relatedParty.getType());
+                        }
+                        relatedPartyArray.add(relatedPartyObject);
+                    }
+                    quoteItemJson.set("relatedParty", relatedPartyArray);
                 }
                 
                 // Create attachment array for this quote item
