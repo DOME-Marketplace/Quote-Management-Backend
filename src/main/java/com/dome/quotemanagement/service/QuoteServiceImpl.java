@@ -737,7 +737,7 @@ public class QuoteServiceImpl implements QuoteService {
                 quoteItemJson.put("@type", "QuoteItem");
                 quoteItemJson.put("action", "add");
                 quoteItemJson.put("quantity", 1);
-                quoteItemJson.put("state", "inProgress");
+                quoteItemJson.put("state", "approved");
                 
                 ArrayNode attachmentArray = objectMapper.createArrayNode();
                 ObjectNode newAttachmentObject = objectMapper.createObjectNode();
@@ -810,10 +810,6 @@ public class QuoteServiceImpl implements QuoteService {
                 quoteJson.put("description", customerMessage);
             }
             
-            // Add requestedQuoteCompletionDate (current date + 30 days)
-            Instant requestedCompletionDate = Instant.now().plusSeconds(30 * 24 * 60 * 60); // 30 days in seconds
-            quoteJson.put("requestedQuoteCompletionDate", requestedCompletionDate.toString());
-            
             // Add relatedParty array for seller/provider only
             // The seller/provider is placed at the Quote level since they are the main party responsible for the quote
             ArrayNode relatedPartyArray = objectMapper.createArrayNode();
@@ -835,7 +831,7 @@ public class QuoteServiceImpl implements QuoteService {
             ObjectNode quoteItem = objectMapper.createObjectNode();
             quoteItem.put("@type", "QuoteItem");
             quoteItem.put("action", "add");
-            quoteItem.put("state", "inProgress");
+            quoteItem.put("state", "pending");
             quoteItem.put("quantity", 1);
             quoteItem.set("note", objectMapper.createObjectNode()); // Empty note object
             
