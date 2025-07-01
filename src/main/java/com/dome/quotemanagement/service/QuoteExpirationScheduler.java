@@ -122,8 +122,9 @@ public class QuoteExpirationScheduler {
                 );
 
                 NotificationRequestDTO notification = NotificationRequestDTO.builder()
-                    .seller(providerId)
-                    .customer(customerId)
+                    .sender(providerId)
+                    .recipient(customerId)
+                    .subject("Quote Expired")
                     .message(message)
                     .build();
 

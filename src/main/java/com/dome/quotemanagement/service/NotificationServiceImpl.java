@@ -36,7 +36,7 @@ public class NotificationServiceImpl implements NotificationService {
             restTemplate.postForObject(url, request, Void.class);
             
             log.info("Successfully sent notification for seller: '{}', customer: '{}'", 
-                    notification.getSeller(), notification.getCustomer());
+                    notification.getSender(), notification.getRecipient());
                     
         } catch (Exception e) {
             log.error("Failed to send notification: {}", e.getMessage(), e);

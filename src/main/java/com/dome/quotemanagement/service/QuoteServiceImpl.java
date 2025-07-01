@@ -212,8 +212,9 @@ public class QuoteServiceImpl implements QuoteService {
             // Send notification after successful quote creation
             if (response != null && response.getId() != null) {
                 NotificationRequestDTO notification = NotificationRequestDTO.builder()
-                    .seller(providerIdRef)
-                    .customer(customerIdRef)
+                    .sender(providerIdRef)
+                    .provider(customerIdRef)
+                    .subject("New Quote Created")
                     .message("New quote created with ID: " + response.getId() + 
                             (customerMessage != null ? "\nMessage: " + customerMessage : ""))
                     .build();
@@ -405,8 +406,9 @@ public class QuoteServiceImpl implements QuoteService {
                     );
 
                     NotificationRequestDTO notification = NotificationRequestDTO.builder()
-                        .seller(providerId)
-                        .customer(customerId)
+                        .sender(providerId)
+                        .recipient(customerId)
+                        .subject("New Document Uploaded")
                         .message(message)
                         .build();
 
