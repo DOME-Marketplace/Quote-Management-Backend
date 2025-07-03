@@ -833,7 +833,7 @@ public class QuoteServiceImpl implements QuoteService {
             ObjectNode quoteItem = objectMapper.createObjectNode();
             quoteItem.put("@type", "QuoteItem");
             quoteItem.put("action", "add");
-            quoteItem.put("state", "inProgress");
+            quoteItem.put("state", "pending");
             quoteItem.put("quantity", 1);
             quoteItem.set("note", objectMapper.createObjectNode()); // Empty note object
             
