@@ -812,10 +812,6 @@ public class QuoteServiceImpl implements QuoteService {
                 quoteJson.put("description", customerMessage);
             }
             
-            // Add requestedQuoteCompletionDate (current date + 30 days)
-            Instant requestedCompletionDate = Instant.now().plusSeconds(30 * 24 * 60 * 60); // 30 days in seconds
-            quoteJson.put("requestedQuoteCompletionDate", requestedCompletionDate.toString());
-            
             // Add relatedParty array for seller/provider only
             // The seller/provider is placed at the Quote level since they are the main party responsible for the quote
             ArrayNode relatedPartyArray = objectMapper.createArrayNode();
