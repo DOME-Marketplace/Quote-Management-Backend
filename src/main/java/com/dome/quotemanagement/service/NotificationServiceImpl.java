@@ -1,5 +1,6 @@
 package com.dome.quotemanagement.service;
 
+import com.dome.quotemanagement.config.AppConfig;
 import com.dome.quotemanagement.dto.NotificationRequestDTO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,7 +23,7 @@ public class NotificationServiceImpl implements NotificationService {
 
     @Override
     public void sendNotification(NotificationRequestDTO notification) {
-        String url = notificationBaseUrl + "/charging/api/orderManagement/notify";
+        String url = notificationBaseUrl + AppConfig.NOTIFICATION_ENDPOINT;
         
         log.info("Sending notification to URL: {}", url);
         log.debug("Notification payload: {}", notification);

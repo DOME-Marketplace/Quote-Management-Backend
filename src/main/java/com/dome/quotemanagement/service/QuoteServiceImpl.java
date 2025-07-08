@@ -1,5 +1,6 @@
 package com.dome.quotemanagement.service;
 
+import com.dome.quotemanagement.config.AppConfig;
 import com.dome.quotemanagement.dto.tmforum.AttachmentRefOrValueDTO;
 import com.dome.quotemanagement.dto.tmforum.QuoteDTO;
 import com.dome.quotemanagement.dto.tmforum.QuoteItemDTO;
@@ -42,7 +43,7 @@ public class QuoteServiceImpl implements QuoteService {
     
     @Override
     public List<QuoteDTO> findAllQuotes() {
-        String url = tmforumBaseUrl.trim() + "/quoteManagement/v4/quote?limit=1000";
+        String url = tmforumBaseUrl.trim() + AppConfig.TMFORUM_QUOTE_LIST_ENDPOINT;
         log.debug("Calling external TMForum API to get all quotes: {}", url);
         try {
             HttpHeaders headers = new HttpHeaders();
@@ -66,7 +67,7 @@ public class QuoteServiceImpl implements QuoteService {
     
     @Override
     public List<QuoteDTO> findQuotesByUser(String userId, String role) {
-        String url = tmforumBaseUrl.trim() + "/quoteManagement/v4/quote?limit=1000";
+        String url = tmforumBaseUrl.trim() + AppConfig.TMFORUM_QUOTE_LIST_ENDPOINT;
         log.debug("Calling external TMForum API: {}", url);
         
         try {
@@ -132,7 +133,7 @@ public class QuoteServiceImpl implements QuoteService {
     
     @Override
     public Optional<QuoteDTO> findById(String id) {
-        String url = tmforumBaseUrl.trim() + "/quoteManagement/v4/quote/" + id;
+        String url = tmforumBaseUrl.trim() + AppConfig.TMFORUM_QUOTE_ENDPOINT + "/" + id;
         log.debug("Calling external TMForum API: {}", url);
         try {
             HttpHeaders headers = new HttpHeaders();
@@ -173,7 +174,7 @@ public class QuoteServiceImpl implements QuoteService {
     
     @Override
     public QuoteDTO create(String customerMessage, String customerIdRef, String providerIdRef, String productOfferingId) {
-        String url = tmforumBaseUrl.trim() + "/quoteManagement/v4/quote";
+        String url = tmforumBaseUrl.trim() + AppConfig.TMFORUM_QUOTE_ENDPOINT;
         log.debug("Calling external TMForum API: {}", url);
         log.debug("Create quote parameters - customerMessage: '{}', customerIdRef: '{}', providerIdRef: '{}', productOfferingId: '{}'", 
                   customerMessage, customerIdRef, providerIdRef, productOfferingId);
@@ -247,7 +248,7 @@ public class QuoteServiceImpl implements QuoteService {
             // Create a minimal update payload with just the status change at quoteItem level
             String jsonPayload = buildStatusUpdateJson(statusValue, currentQuote);
             
-            String url = tmforumBaseUrl.trim() + "/quoteManagement/v4/quote/" + quoteId;
+            String url = tmforumBaseUrl.trim() + AppConfig.TMFORUM_QUOTE_ENDPOINT + "/" + quoteId;
             
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -292,7 +293,7 @@ public class QuoteServiceImpl implements QuoteService {
             // Create a minimal update payload with the new note appended to existing ones
             String jsonPayload = buildNoteUpdateJson(messageContent, userId, currentQuote);
             
-            String url = tmforumBaseUrl.trim() + "/quoteManagement/v4/quote/" + quoteId;
+            String url = tmforumBaseUrl.trim() + AppConfig.TMFORUM_QUOTE_ENDPOINT + "/" + quoteId;
             
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -338,7 +339,7 @@ public class QuoteServiceImpl implements QuoteService {
             }
             
             // Validate file size (limit to 10MB)
-            long maxSize = 10 * 1024 * 1024; // 10MB
+            long maxSize = 100 * 1024 * 1024; // 100B
             if (file.getSize() > maxSize) {
                 throw new IllegalArgumentException("File size exceeds maximum allowed size of 10MB");
             }
@@ -358,7 +359,7 @@ public class QuoteServiceImpl implements QuoteService {
             // Create a minimal update payload with the new attachment
             String jsonPayload = buildAttachmentUpdateJson(attachment, currentQuote);
             
-            String url = tmforumBaseUrl.trim() + "/quoteManagement/v4/quote/" + quoteId;
+            String url = tmforumBaseUrl.trim() + AppConfig.TMFORUM_QUOTE_ENDPOINT + "/" + quoteId;
             
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -451,7 +452,7 @@ public class QuoteServiceImpl implements QuoteService {
             // Create a minimal update payload with the converted date
             String jsonPayload = buildDateUpdateJson(isoDate, dateType);
             
-            String url = tmforumBaseUrl.trim() + "/quoteManagement/v4/quote/" + quoteId;
+            String url = tmforumBaseUrl.trim() + AppConfig.TMFORUM_QUOTE_ENDPOINT + "/" + quoteId;
             
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -481,7 +482,7 @@ public class QuoteServiceImpl implements QuoteService {
     
     @Override
     public void delete(String id) {
-        String url = tmforumBaseUrl.trim() + "/quoteManagement/v4/quote/" + id;
+        String url = tmforumBaseUrl.trim() + AppConfig.TMFORUM_QUOTE_ENDPOINT + "/" + id;
         log.debug("Calling external TMForum API: {}", url);
         try {
             HttpHeaders headers = new HttpHeaders();
@@ -672,42 +673,10 @@ public class QuoteServiceImpl implements QuoteService {
                     quoteItemJson.set("relatedParty", relatedPartyArray);
                 }
                 
-                // Create attachment array for this quote item
+                // Create attachment array for this quote item (overwrite any existing attachments)
                 ArrayNode attachmentArray = objectMapper.createArrayNode();
                 
-                // Preserve existing attachments if any
-                if (firstQuoteItem.getAttachment() != null && !firstQuoteItem.getAttachment().isEmpty()) {
-                    for (AttachmentRefOrValueDTO existingAttachment : firstQuoteItem.getAttachment()) {
-                        ObjectNode existingAttachmentObject = objectMapper.createObjectNode();
-                        existingAttachmentObject.put("@type", "AttachmentRefOrValue");
-                        
-                        if (existingAttachment.getName() != null) {
-                            existingAttachmentObject.put("name", existingAttachment.getName());
-                        }
-                        if (existingAttachment.getDescription() != null) {
-                            existingAttachmentObject.put("description", existingAttachment.getDescription());
-                        }
-                        if (existingAttachment.getContent() != null) {
-                            existingAttachmentObject.put("content", existingAttachment.getContent());
-                        }
-                        if (existingAttachment.getMimeType() != null) {
-                            existingAttachmentObject.put("mimeType", existingAttachment.getMimeType());
-                        }
-                        if (existingAttachment.getSize() != null) {
-                            ObjectNode sizeObject = objectMapper.createObjectNode();
-                            sizeObject.put("amount", existingAttachment.getSize().getAmount());
-                            sizeObject.put("units", existingAttachment.getSize().getUnits());
-                            existingAttachmentObject.set("size", sizeObject);
-                        }
-                        if (existingAttachment.getId() != null) {
-                            existingAttachmentObject.put("id", existingAttachment.getId());
-                        }
-                        
-                        attachmentArray.add(existingAttachmentObject);
-                    }
-                }
-                
-                // Add the new attachment
+                // Add the new attachment (this will overwrite any existing attachment)
                 ObjectNode newAttachmentObject = objectMapper.createObjectNode();
                 newAttachmentObject.put("@type", "AttachmentRefOrValue");
                 
