@@ -30,6 +30,7 @@ public class QuoteExpirationScheduler {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private final NotificationService notificationService;
+    private final AppConfig appConfig;
 
     @Value("${tmforum.api.base-url}")
     private String tmforumBaseUrl;
@@ -39,7 +40,7 @@ public class QuoteExpirationScheduler {
         log.info("Starting scheduled check for expired quotes");
         try {
             // Get all quotes
-            String url = tmforumBaseUrl.trim() + AppConfig.TMFORUM_QUOTE_LIST_ENDPOINT;
+            String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteListEndpoint();
             QuoteDTO[] quotes = restTemplate.getForObject(url, QuoteDTO[].class);
             List<QuoteDTO> allQuotes = Arrays.asList(quotes != null ? quotes : new QuoteDTO[0]);
 
@@ -69,7 +70,7 @@ public class QuoteExpirationScheduler {
         log.info("Handling expired quote: {}", quote.getId());
         try {
             // Update quote status to cancelled
-            String url = tmforumBaseUrl.trim() + AppConfig.TMFORUM_QUOTE_ENDPOINT + "/" + quote.getId();
+            String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteEndpoint() + "/" + quote.getId();
             
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -82,7 +83,7 @@ public class QuoteExpirationScheduler {
             restTemplate.exchange(url, org.springframework.http.HttpMethod.PATCH, request, QuoteDTO.class);
 
             // Add note about expiration
-            String noteUrl = tmforumBaseUrl.trim() + AppConfig.TMFORUM_QUOTE_ENDPOINT + "/" + quote.getId();
+            String noteUrl = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteEndpoint() + "/" + quote.getId();
             String notePayload = buildNoteUpdateJson(
                 "Quote automatically cancelled due to expiration of requested completion date.",
                 "SYSTEM",

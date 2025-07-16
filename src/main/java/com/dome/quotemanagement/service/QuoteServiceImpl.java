@@ -37,13 +37,23 @@ public class QuoteServiceImpl implements QuoteService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private final NotificationService notificationService;
+    private final AppConfig appConfig;
     
     @Value("${tmforum.api.base-url}")
     private String tmforumBaseUrl;
     
+    @Value("${attachment.verification.enabled:true}")
+    private boolean attachmentVerificationEnabled;
+    
+    @Value("${attachment.verification.max-attempts:5}")
+    private int attachmentVerificationMaxAttempts;
+    
+    @Value("${attachment.verification.delay-ms:1000}")
+    private int attachmentVerificationDelayMs;
+    
     @Override
     public List<QuoteDTO> findAllQuotes() {
-        String url = tmforumBaseUrl.trim() + AppConfig.TMFORUM_QUOTE_LIST_ENDPOINT;
+        String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteListEndpoint();
         log.debug("Calling external TMForum API to get all quotes: {}", url);
         try {
             HttpHeaders headers = new HttpHeaders();
@@ -67,7 +77,7 @@ public class QuoteServiceImpl implements QuoteService {
     
     @Override
     public List<QuoteDTO> findQuotesByUser(String userId, String role) {
-        String url = tmforumBaseUrl.trim() + AppConfig.TMFORUM_QUOTE_LIST_ENDPOINT;
+        String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteListEndpoint();
         log.debug("Calling external TMForum API: {}", url);
         
         try {
@@ -133,7 +143,7 @@ public class QuoteServiceImpl implements QuoteService {
     
     @Override
     public Optional<QuoteDTO> findById(String id) {
-        String url = tmforumBaseUrl.trim() + AppConfig.TMFORUM_QUOTE_ENDPOINT + "/" + id;
+        String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteEndpoint() + "/" + id;
         log.debug("Calling external TMForum API: {}", url);
         try {
             HttpHeaders headers = new HttpHeaders();
@@ -174,7 +184,7 @@ public class QuoteServiceImpl implements QuoteService {
     
     @Override
     public QuoteDTO create(String customerMessage, String customerIdRef, String providerIdRef, String productOfferingId) {
-        String url = tmforumBaseUrl.trim() + AppConfig.TMFORUM_QUOTE_ENDPOINT;
+        String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteEndpoint();
         log.debug("Calling external TMForum API: {}", url);
         log.debug("Create quote parameters - customerMessage: '{}', customerIdRef: '{}', providerIdRef: '{}', productOfferingId: '{}'", 
                   customerMessage, customerIdRef, providerIdRef, productOfferingId);
@@ -248,7 +258,7 @@ public class QuoteServiceImpl implements QuoteService {
             // Create a minimal update payload with just the status change at quoteItem level
             String jsonPayload = buildStatusUpdateJson(statusValue, currentQuote);
             
-            String url = tmforumBaseUrl.trim() + AppConfig.TMFORUM_QUOTE_ENDPOINT + "/" + quoteId;
+            String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteEndpoint() + "/" + quoteId;
             
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -293,7 +303,7 @@ public class QuoteServiceImpl implements QuoteService {
             // Create a minimal update payload with the new note appended to existing ones
             String jsonPayload = buildNoteUpdateJson(messageContent, userId, currentQuote);
             
-            String url = tmforumBaseUrl.trim() + AppConfig.TMFORUM_QUOTE_ENDPOINT + "/" + quoteId;
+            String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteEndpoint() + "/" + quoteId;
             
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -338,10 +348,10 @@ public class QuoteServiceImpl implements QuoteService {
                 throw new IllegalArgumentException("Only PDF files are allowed. Received: " + contentType);
             }
             
-            // Validate file size (limit to 10MB)
-            long maxSize = 100 * 1024 * 1024; // 100B
+            // Validate file size (limit to 100MB)
+            long maxSize = 100 * 1024 * 1024; // 100MB
             if (file.getSize() > maxSize) {
-                throw new IllegalArgumentException("File size exceeds maximum allowed size of 10MB");
+                throw new IllegalArgumentException("File size exceeds maximum allowed size of 100MB");
             }
             
             // First, get the current quote
@@ -359,7 +369,7 @@ public class QuoteServiceImpl implements QuoteService {
             // Create a minimal update payload with the new attachment
             String jsonPayload = buildAttachmentUpdateJson(attachment, currentQuote);
             
-            String url = tmforumBaseUrl.trim() + AppConfig.TMFORUM_QUOTE_ENDPOINT + "/" + quoteId;
+            String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteEndpoint() + "/" + quoteId;
             
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -379,6 +389,14 @@ public class QuoteServiceImpl implements QuoteService {
             ).getBody();
             
             log.info("Received updated quote from TMForum API: {}", updatedQuote);
+
+            // CRITICAL: Wait until the attachment is actually persisted before returning success
+            // The TMForum API might return success before async processing completes
+            if (updatedQuote != null && attachmentVerificationEnabled) {
+                log.info("Waiting for attachment to be persisted before returning success...");
+                waitForAttachmentPersistence(quoteId, file.getOriginalFilename(), attachmentVerificationMaxAttempts, attachmentVerificationDelayMs);
+                log.info("Attachment persistence confirmed for quote: {} and file: {}", quoteId, file.getOriginalFilename());
+            }
 
             // Send notification to customer about the new document
             if (updatedQuote != null) {
@@ -452,7 +470,7 @@ public class QuoteServiceImpl implements QuoteService {
             // Create a minimal update payload with the converted date
             String jsonPayload = buildDateUpdateJson(isoDate, dateType);
             
-            String url = tmforumBaseUrl.trim() + AppConfig.TMFORUM_QUOTE_ENDPOINT + "/" + quoteId;
+            String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteEndpoint() + "/" + quoteId;
             
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -482,7 +500,7 @@ public class QuoteServiceImpl implements QuoteService {
     
     @Override
     public void delete(String id) {
-        String url = tmforumBaseUrl.trim() + AppConfig.TMFORUM_QUOTE_ENDPOINT + "/" + id;
+        String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteEndpoint() + "/" + id;
         log.debug("Calling external TMForum API: {}", url);
         try {
             HttpHeaders headers = new HttpHeaders();
@@ -548,6 +566,44 @@ public class QuoteServiceImpl implements QuoteService {
                             relatedPartyArray.add(relatedPartyObject);
                         }
                         quoteItemJson.set("relatedParty", relatedPartyArray);
+                    }
+                    
+                    // CRITICAL: Preserve attachment information to prevent loss during status updates
+                    if (quoteItem.getAttachment() != null && !quoteItem.getAttachment().isEmpty()) {
+                        ArrayNode attachmentArray = objectMapper.createArrayNode();
+                        for (AttachmentRefOrValueDTO attachment : quoteItem.getAttachment()) {
+                            ObjectNode attachmentObject = objectMapper.createObjectNode();
+                            attachmentObject.put("@type", "AttachmentRefOrValue");
+                            
+                            if (attachment.getId() != null) {
+                                attachmentObject.put("id", attachment.getId());
+                            }
+                            if (attachment.getName() != null) {
+                                attachmentObject.put("name", attachment.getName());
+                            }
+                            if (attachment.getDescription() != null) {
+                                attachmentObject.put("description", attachment.getDescription());
+                            }
+                            if (attachment.getMimeType() != null) {
+                                attachmentObject.put("mimeType", attachment.getMimeType());
+                            }
+                            if (attachment.getContent() != null) {
+                                attachmentObject.put("content", attachment.getContent());
+                            }
+                            if (attachment.getSize() != null) {
+                                ObjectNode sizeObject = objectMapper.createObjectNode();
+                                sizeObject.put("amount", attachment.getSize().getAmount());
+                                sizeObject.put("units", attachment.getSize().getUnits());
+                                attachmentObject.set("size", sizeObject);
+                            }
+                            if (attachment.getUrl() != null) {
+                                attachmentObject.put("url", attachment.getUrl());
+                            }
+                            
+                            attachmentArray.add(attachmentObject);
+                        }
+                        quoteItemJson.set("attachment", attachmentArray);
+                        log.debug("Preserved {} attachments for quote item {}", attachmentArray.size(), quoteItem.getId());
                     }
                     
                     quoteItemArray.add(quoteItemJson);
@@ -922,6 +978,61 @@ public class QuoteServiceImpl implements QuoteService {
         } catch (Exception e) {
             log.error("Error writing debug log to file: {}", e.getMessage(), e);
         }
+    }
+
+    /**
+     * Wait until the attachment is actually persisted by the TMForum API
+     * The TMForum API might return success before async processing completes
+     * This method will block until the attachment is confirmed or timeout occurs
+     */
+    private void waitForAttachmentPersistence(String quoteId, String fileName, int maxAttempts, int delayMs) {
+        for (int i = 0; i < maxAttempts; i++) {
+            try {
+                // Wait before checking (except for first attempt)
+                if (i > 0) {
+                    Thread.sleep(delayMs);
+                }
+                
+                // Fetch the quote again to verify attachment exists
+                Optional<QuoteDTO> verificationQuoteOpt = findById(quoteId);
+                if (verificationQuoteOpt.isPresent()) {
+                    QuoteDTO verificationQuote = verificationQuoteOpt.get();
+                    
+                    // Check if quote items have attachments
+                    if (verificationQuote.getQuoteItem() != null) {
+                        for (QuoteItemDTO quoteItem : verificationQuote.getQuoteItem()) {
+                            if (quoteItem.getAttachment() != null) {
+                                for (AttachmentRefOrValueDTO attachment : quoteItem.getAttachment()) {
+                                    if (attachment.getName() != null && attachment.getName().equals(fileName)) {
+                                        // Additional verification: check if attachment has content
+                                        boolean hasContent = attachment.getContent() != null && !attachment.getContent().isEmpty();
+                                        boolean hasSize = attachment.getSize() != null && attachment.getSize().getAmount() > 0;
+                                        
+                                        if (hasContent && hasSize) {
+                                            log.info("Attachment confirmed as persisted on attempt {}: {}", i + 1, fileName);
+                                            return; // Success - attachment found with content
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                log.warn("Attachment not yet persisted, attempt {} of {}: {}", i + 1, maxAttempts, fileName);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.error("Attachment persistence check interrupted", e);
+                throw new RuntimeException("File upload verification was interrupted", e);
+            } catch (Exception e) {
+                log.error("Error during attachment persistence check attempt {}: {}", i + 1, e.getMessage());
+            }
+        }
+        
+        // If we get here, attachment was not found after all attempts
+        log.error("Attachment was not persisted after {} attempts and {} seconds total wait time for file: {}", 
+                maxAttempts, (maxAttempts * delayMs) / 1000, fileName);
+        throw new RuntimeException("File upload failed: attachment was not persisted within timeout period. Please try again.");
     }
 }
 

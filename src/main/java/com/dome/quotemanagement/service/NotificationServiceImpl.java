@@ -17,13 +17,14 @@ import org.springframework.web.client.RestTemplate;
 public class NotificationServiceImpl implements NotificationService {
 
     private final RestTemplate restTemplate;
+    private final AppConfig appConfig;
 
     @Value("${notification.api.base-url}")
     private String notificationBaseUrl;
 
     @Override
     public void sendNotification(NotificationRequestDTO notification) {
-        String url = notificationBaseUrl + AppConfig.NOTIFICATION_ENDPOINT;
+        String url = notificationBaseUrl + appConfig.getNotificationEndpoint();
         
         log.info("Sending notification to URL: {}", url);
         log.debug("Notification payload: {}", notification);

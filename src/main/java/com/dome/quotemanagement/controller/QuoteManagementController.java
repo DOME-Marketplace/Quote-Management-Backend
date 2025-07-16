@@ -231,7 +231,7 @@ public class QuoteManagementController {
     @PatchMapping(value = "/addAttachmentToQuote/{id}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @Operation(
         summary = "Add attachment to quote", 
-        description = "Adds a PDF attachment to the quote. Only PDF files up to 10MB are allowed. Backend calls: /quote/{id}"
+        description = "Adds a PDF attachment to the quote. Only PDF files up to 100MB are allowed. Backend calls: /quote/{id}"
     )
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "Quote attachment added successfully",
@@ -243,7 +243,7 @@ public class QuoteManagementController {
     public ResponseEntity<QuoteDTO> updateQuoteAttachment(
             @Parameter(description = "Quote ID", required = true)
             @PathVariable String id,
-            @Parameter(description = "PDF file to attach (max 10MB)", required = true)
+            @Parameter(description = "PDF file to attach (max 100MB)", required = true)
             @RequestParam("file") MultipartFile file,
             @Parameter(description = "Description of the attachment", required = false)
             @RequestParam(value = "description", required = false, defaultValue = "") String description) {

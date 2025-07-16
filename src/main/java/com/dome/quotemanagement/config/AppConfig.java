@@ -26,12 +26,29 @@ import java.util.Collections;
 @Configuration
 public class AppConfig {
     
-    // TMForum API Endpoints
-    public static final String TMFORUM_QUOTE_ENDPOINT = "/quoteManagement/v4/quote";
-    public static final String TMFORUM_QUOTE_LIST_ENDPOINT = "/quoteManagement/v4/quote?limit=1000";
+    // TMForum API Endpoints - now configurable through properties
+    @Value("${tmforum.api.quote-endpoint:/quoteManagement/v4/quote}")
+    private String tmforumQuoteEndpoint;
     
-    // Notification API Endpoints
-    public static final String NOTIFICATION_ENDPOINT = "/charging/api/orderManagement/notify";
+    @Value("${tmforum.api.quote-list-endpoint:/quoteManagement/v4/quote?limit=1000}")
+    private String tmforumQuoteListEndpoint;
+    
+    // Notification API Endpoints - now configurable through properties
+    @Value("${notification.api.endpoint:/charging/api/orderManagement/notify}")
+    private String notificationEndpoint;
+    
+    // Public getters to maintain backward compatibility
+    public String getTmforumQuoteEndpoint() {
+        return tmforumQuoteEndpoint;
+    }
+    
+    public String getTmforumQuoteListEndpoint() {
+        return tmforumQuoteListEndpoint;
+    }
+    
+    public String getNotificationEndpoint() {
+        return notificationEndpoint;
+    }
     
     @Autowired
     private RestTemplateLoggingInterceptor restTemplateLoggingInterceptor;
