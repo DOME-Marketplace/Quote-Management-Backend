@@ -26,7 +26,7 @@ if [ $? -eq 0 ]; then
     echo "🚀 To run the container, use:"
     echo "   docker-compose up -d"
     echo "   or"
-    echo "   docker run -p 8080:8080 -e TMFORUM_API_BASE_URL=your-api-url ${FULL_IMAGE_NAME}"
+    echo "   docker run -p 8088:8088 -e TMFORUM_API_BASE_URL=your-api-url ${FULL_IMAGE_NAME}"
 else
     echo "❌ Docker build failed!"
     exit 1

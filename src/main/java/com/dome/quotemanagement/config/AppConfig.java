@@ -27,10 +27,10 @@ import java.util.Collections;
 public class AppConfig {
     
     // TMForum API Endpoints - now configurable through properties
-    @Value("${tmforum.api.quote-endpoint:/quoteManagement/v4/quote}")
+    @Value("${tmforum.api.quote-endpoint:/quote/v4/quote}")
     private String tmforumQuoteEndpoint;
     
-    @Value("${tmforum.api.quote-list-endpoint:/quoteManagement/v4/quote?limit=1000}")
+    @Value("${tmforum.api.quote-list-endpoint:/quote/v4/quote?limit=1000}")
     private String tmforumQuoteListEndpoint;
     
     // Notification API Endpoints - now configurable through properties
