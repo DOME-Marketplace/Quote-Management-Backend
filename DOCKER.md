@@ -7,7 +7,7 @@ This guide explains how to build and run the Quote Management Backend service us
 - Docker Desktop or Docker Engine
 - Docker Compose (usually included with Docker Desktop)
 - At least 2GB of free disk space
-- Port 8088 available on your host machine
+- Port 8080 available on your host machine
 
 ## 🚀 Quick Start
 
@@ -30,9 +30,9 @@ This guide explains how to build and run the Quote Management Backend service us
    ```
 
 4. **Access the application**
-   - API: http://localhost:8088
-- Swagger UI: http://localhost:8088/swagger-ui.html
-- Health Check: http://localhost:8088/actuator/health
+   - API: http://localhost:8080
+- Swagger UI: http://localhost:8080/swagger-ui.html
+- Health Check: http://localhost:9000/actuator/health
 
 ### Option 2: Using Build Scripts
 
@@ -58,7 +58,7 @@ docker-build.bat
    ```bash
    docker run -d \
      --name quote-management \
-     -p 8088:8088 \
+     -p 8080:8080 \
      -e TMFORUM_API_BASE_URL=https://an-dhub-sbx.dome-project.eu/tmf-api \
      -v $(pwd)/uploads:/app/uploads \
      quote-management-service:latest
@@ -85,7 +85,7 @@ docker-build.bat
 
 ### Health Check Endpoint
 ```bash
-curl http://localhost:8088/actuator/health
+curl http://localhost:9000/actuator/health
 ```
 
 ### Container Logs
@@ -133,10 +133,10 @@ docker exec quote-management df -h
 
 ### Common Issues
 
-1. **Port 8088 already in use**
+1. **Port 8080 already in use**
    ```bash
    # Change port in docker-compose.yml or use different port
-   docker run -p 8081:8088 quote-management-service:latest
+   docker run -p 8080:8080 quote-management-service:latest
    ```
 
 2. **TMForum API connection issues**

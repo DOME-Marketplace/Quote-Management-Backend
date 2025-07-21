@@ -82,6 +82,22 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(body, HttpStatus.INTERNAL_SERVER_ERROR);
     }
 
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleNoResourceFoundException(
+            org.springframework.web.servlet.resource.NoResourceFoundException ex, WebRequest request) {
+        
+        log.warn("Static resource not found: {} - Path: {}", ex.getMessage(), request.getDescription(false));
+        
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("timestamp", LocalDateTime.now());
+        body.put("status", HttpStatus.NOT_FOUND.value());
+        body.put("error", HttpStatus.NOT_FOUND.getReasonPhrase());
+        body.put("message", "Resource not found");
+        body.put("path", request.getDescription(false).replace("uri=", ""));
+
+        return new ResponseEntity<>(body, HttpStatus.NOT_FOUND);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleGenericException(
             Exception ex, WebRequest request) {

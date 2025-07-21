@@ -22,7 +22,7 @@ import java.util.List;
 public class RequestLoggingFilter extends OncePerRequestFilter {
 
     private static final List<String> EXCLUDED_PATHS = Arrays.asList(
-        "/actuator", "/health", "/swagger", "/api-docs", "/webjars"
+        "/actuator", "/health", "/swagger", "/api-docs", "/webjars", "/favicon.ico", "."
     );
 
     @Override

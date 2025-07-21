@@ -32,11 +32,11 @@ RUN chown appuser:appgroup app.jar
 USER appuser
 
 # Expose port
-EXPOSE 8088
+EXPOSE 8080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD curl -f http://localhost:8088/actuator/health || exit 1
+  CMD curl -f http://localhost:9000/actuator/health || exit 1
 
 # Set JVM options for container environment
 ENV JAVA_OPTS="-Xmx512m -Xms256m -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"

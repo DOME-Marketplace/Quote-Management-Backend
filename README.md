@@ -46,14 +46,14 @@ git clone [repository-url]
 docker build -t quote-management-service .
 
 # Run the container
-docker run -p 8088:8088 quote-management-service
+docker run -p 8080:8080 quote-management-service
 ```
 
 ## API Documentation
 
 Once the application is running, you can access the API documentation at:
 ```
-http://localhost:8088/swagger-ui.html
+http://localhost:8080/swagger-ui.html
 ```
 
 ## Configuration
@@ -62,7 +62,7 @@ The application can be configured using environment variables or application.pro
 
 ```properties
 # Server Configuration
-server.port=8088
+server.port=8080
 
 # Database Configuration
 spring.datasource.url=jdbc:postgresql://localhost:5432/quote_management
