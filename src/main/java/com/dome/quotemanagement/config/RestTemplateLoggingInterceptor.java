@@ -1,6 +1,8 @@
 package com.dome.quotemanagement.config;
 
+import com.dome.quotemanagement.util.LogFormatUtil;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.http.HttpRequest;
 import org.springframework.http.client.ClientHttpRequestExecution;
 import org.springframework.http.client.ClientHttpRequestInterceptor;
@@ -17,11 +19,19 @@ import java.nio.charset.StandardCharsets;
 @Component
 public class RestTemplateLoggingInterceptor implements ClientHttpRequestInterceptor {
 
+    private static final int MAX_LOG_LENGTH = 3000; // Reduced for better readability
+
     @Override
     public ClientHttpResponse intercept(HttpRequest request, byte[] body, 
                                       ClientHttpRequestExecution execution) throws IOException {
         
         long startTime = System.currentTimeMillis();
+        
+        // Add correlation ID to outgoing request headers
+        String correlationId = MDC.get("correlationId");
+        if (correlationId != null) {
+            request.getHeaders().add("X-Correlation-ID", correlationId);
+        }
         
         // Log outgoing request to TMForum
         logTMForumRequest(request, body);
@@ -41,8 +51,13 @@ public class RestTemplateLoggingInterceptor implements ClientHttpRequestIntercep
             
         } catch (Exception e) {
             long duration = System.currentTimeMillis() - startTime;
-            log.error("=== TMForum API ERROR === {} {} - Duration: {}ms - Error: {}", 
-                    request.getMethod(), request.getURI(), duration, e.getMessage());
+            String formattedError = LogFormatUtil.formatHttpResponse(
+                request.getMethod().toString(), 
+                request.getURI().toString(), 
+                500, 
+                duration
+            );
+            log.error("[ERROR] TMForum API ERROR: {} - {}", formattedError, e.getMessage());
             throw e;
         }
     }
@@ -51,18 +66,24 @@ public class RestTemplateLoggingInterceptor implements ClientHttpRequestIntercep
         String method = request.getMethod().toString();
         String url = request.getURI().toString();
         
-        log.info("=== TMForum OUTGOING REQUEST === {} {}", method, url);
+        // Create formatted request header
+        String formattedRequest = LogFormatUtil.formatHttpRequest(method, url);
+        log.info("{}", LogFormatUtil.createLogSection("TMForum OUTGOING REQUEST"));
+        log.info("{}", formattedRequest);
         
         // Log request headers (selective)
-        log.debug("TMForum Request Headers: Content-Type={}, Accept={}", 
+        log.debug("[HEADERS] Request Headers: Content-Type={}, Accept={}", 
                 request.getHeaders().getFirst("Content-Type"),
                 request.getHeaders().getFirst("Accept"));
         
         // Log request body for operations that have a body
         if (body != null && body.length > 0) {
             String requestBody = new String(body, StandardCharsets.UTF_8);
-            log.info("TMForum Request Payload: {}", requestBody);
+            String formattedJson = LogFormatUtil.formatJsonForLog(requestBody, MAX_LOG_LENGTH);
+            log.info("[PAYLOAD] Request Payload:\n{}", formattedJson);
         }
+        
+        log.info("{}", LogFormatUtil.createLogSectionEnd());
     }
 
     private void logTMForumResponse(HttpRequest request, ClientHttpResponse response, long duration) {
@@ -71,11 +92,13 @@ public class RestTemplateLoggingInterceptor implements ClientHttpRequestIntercep
             String url = request.getURI().toString();
             int statusCode = response.getStatusCode().value();
             
-            log.info("=== TMForum INCOMING RESPONSE === {} {} - Status: {} - Duration: {}ms", 
-                    method, url, statusCode, duration);
+            // Create formatted response header
+            String formattedResponse = LogFormatUtil.formatHttpResponse(method, url, statusCode, duration);
+            log.info("{}", LogFormatUtil.createLogSection("TMForum INCOMING RESPONSE"));
+            log.info("{}", formattedResponse);
             
             // Log response headers
-            log.debug("TMForum Response Headers: Content-Type={}, Content-Length={}", 
+            log.debug("[HEADERS] Response Headers: Content-Type={}, Content-Length={}", 
                     response.getHeaders().getFirst("Content-Type"),
                     response.getHeaders().getFirst("Content-Length"));
             
@@ -83,22 +106,24 @@ public class RestTemplateLoggingInterceptor implements ClientHttpRequestIntercep
             String responseBody = readResponseBody(response);
             if (!responseBody.isEmpty()) {
                 if (statusCode >= 200 && statusCode < 400) {
-                    // Success response
-                    if (responseBody.length() < 5000) {
-                        log.info("TMForum Response Payload: {}", responseBody);
-                    } else {
-                        log.info("TMForum Response Payload: [LARGE_RESPONSE_TRUNCATED] Size: {} characters", 
-                                responseBody.length());
-                        log.debug("Full TMForum Response: {}", responseBody); // Full response in DEBUG
+                    // Success response - use pretty formatting
+                    String formattedJson = LogFormatUtil.formatJsonForLog(responseBody, MAX_LOG_LENGTH);
+                    log.info("[PAYLOAD] Response Payload:\n{}", formattedJson);
+                    
+                    // Always log full response in DEBUG for success cases
+                    if (responseBody.length() > MAX_LOG_LENGTH) {
+                        log.debug("[DEBUG] Full Response (DEBUG):\n{}", LogFormatUtil.prettifyJson(responseBody));
                     }
                 } else {
-                    // Error response - always log fully
-                    log.error("TMForum Error Response Payload: {}", responseBody);
+                    // Error response - always log fully and prettified
+                    log.error("[ERROR] Error Response Payload:\n{}", LogFormatUtil.prettifyJson(responseBody));
                 }
             }
             
+            log.info("{}", LogFormatUtil.createLogSectionEnd());
+            
         } catch (Exception e) {
-            log.warn("Failed to log TMForum response: {}", e.getMessage());
+            log.warn("[WARN] Failed to log TMForum response: {}", e.getMessage());
         }
     }
 
@@ -106,7 +131,7 @@ public class RestTemplateLoggingInterceptor implements ClientHttpRequestIntercep
         try {
             return StreamUtils.copyToString(response.getBody(), StandardCharsets.UTF_8);
         } catch (Exception e) {
-            log.warn("Failed to read TMForum response body: {}", e.getMessage());
+            log.warn("[WARN] Failed to read TMForum response body: {}", e.getMessage());
             return "";
         }
     }

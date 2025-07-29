@@ -1,5 +1,6 @@
 package com.dome.quotemanagement.config;
 
+import com.dome.quotemanagement.util.LogFormatUtil;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -18,12 +19,14 @@ import java.util.List;
 
 @Slf4j
 @Component
-@Order(1)
+@Order(1) // Execute after CorrelationIdFilter
 public class RequestLoggingFilter extends OncePerRequestFilter {
 
     private static final List<String> EXCLUDED_PATHS = Arrays.asList(
-        "/actuator", "/health", "/swagger", "/api-docs", "/webjars", "/favicon.ico", "."
+        "/actuator", "/health", "/swagger", "/api-docs", "/webjars", "/favicon.ico"
     );
+    
+    private static final int MAX_LOG_LENGTH = 3000; // For consistent formatting
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, 
@@ -52,7 +55,7 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
             logOutgoingResponse(wrappedRequest, wrappedResponse, System.currentTimeMillis() - startTime);
             
         } catch (Exception ex) {
-            log.error("Exception during request processing: {}", ex.getMessage(), ex);
+            log.error("[ERROR] Exception during request processing: {}", ex.getMessage(), ex);
             throw ex;
         } finally {
             // Important: Copy response content back
@@ -64,23 +67,29 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
         String method = request.getMethod();
         String uri = request.getRequestURI();
         String queryString = request.getQueryString();
+        String fullUrl = uri + (queryString != null ? "?" + queryString : "");
         
-        log.info("=== INCOMING REQUEST === {} {} {}",
-                method, uri, queryString != null ? "?" + queryString : "");
+        // Create formatted request header
+        String formattedRequest = LogFormatUtil.formatHttpRequest(method, fullUrl);
+        log.info("{}", LogFormatUtil.createLogSection("INCOMING REQUEST"));
+        log.info("{}", formattedRequest);
         
-        // Log headers (selective)
-        log.debug("Request Headers: Content-Type={}, User-Agent={}, Authorization={}",
+        // Log headers (selective with masking)
+        log.debug("[HEADERS] Request Headers: Content-Type={}, User-Agent={}, Authorization={}",
                 request.getHeader("Content-Type"),
                 request.getHeader("User-Agent"),
-                request.getHeader("Authorization") != null ? "***PROVIDED***" : "null");
+                request.getHeader("Authorization") != null ? "[PROVIDED]" : "null");
         
         // Log request body for POST/PUT/PATCH operations
         if (hasRequestBody(method)) {
             String requestBody = getRequestBody(request);
             if (!requestBody.isEmpty()) {
-                log.info("Request Payload: {}", requestBody);
+                String formattedJson = LogFormatUtil.formatJsonForLog(requestBody, MAX_LOG_LENGTH);
+                log.info("[PAYLOAD] Request Payload:\n{}", formattedJson);
             }
         }
+        
+        log.info("{}", LogFormatUtil.createLogSectionEnd());
     }
 
     private void logOutgoingResponse(ContentCachingRequestWrapper request, 
@@ -90,29 +99,35 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
         String uri = request.getRequestURI();
         int status = response.getStatus();
         
-        log.info("=== OUTGOING RESPONSE === {} {} - Status: {} - Duration: {}ms",
-                method, uri, status, duration);
+        // Create formatted response header
+        String formattedResponse = LogFormatUtil.formatHttpResponse(method, uri, status, duration);
+        log.info("{}", LogFormatUtil.createLogSection("OUTGOING RESPONSE"));
+        log.info("{}", formattedResponse);
         
         // Log response headers
-        log.debug("Response Headers: Content-Type={}, Content-Length={}",
+        log.debug("[HEADERS] Response Headers: Content-Type={}, Content-Length={}",
                 response.getHeader("Content-Type"),
                 response.getHeader("Content-Length"));
         
-        // Log response body for successful operations (avoid logging large responses)
-        if (status >= 200 && status < 400) {
-            String responseBody = getResponseBody(response);
-            if (!responseBody.isEmpty() && responseBody.length() < 5000) { // Limit size
-                log.info("Response Payload: {}", responseBody);
-            } else if (responseBody.length() >= 5000) {
-                log.info("Response Payload: [LARGE_RESPONSE_TRUNCATED] Size: {} characters", responseBody.length());
-            }
-        } else {
-            // Always log error responses
-            String responseBody = getResponseBody(response);
-            if (!responseBody.isEmpty()) {
-                log.error("Error Response Payload: {}", responseBody);
+        // Log response body with appropriate formatting
+        String responseBody = getResponseBody(response);
+        if (!responseBody.isEmpty()) {
+            if (status >= 200 && status < 400) {
+                // Success response - use pretty formatting
+                String formattedJson = LogFormatUtil.formatJsonForLog(responseBody, MAX_LOG_LENGTH);
+                log.info("[PAYLOAD] Response Payload:\n{}", formattedJson);
+                
+                // Always log full response in DEBUG for success cases
+                if (responseBody.length() > MAX_LOG_LENGTH) {
+                    log.debug("[DEBUG] Full Response (DEBUG):\n{}", LogFormatUtil.prettifyJson(responseBody));
+                }
+            } else {
+                // Error response - always log fully and prettified
+                log.error("[ERROR] Error Response Payload:\n{}", LogFormatUtil.prettifyJson(responseBody));
             }
         }
+        
+        log.info("{}", LogFormatUtil.createLogSectionEnd());
     }
 
     private boolean shouldSkipLogging(String uri) {
@@ -127,10 +142,12 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
         try {
             byte[] content = request.getContentAsByteArray();
             if (content.length > 0) {
-                return new String(content, StandardCharsets.UTF_8);
+                String body = new String(content, StandardCharsets.UTF_8);
+                // Apply basic masking for sensitive content
+                return LogFormatUtil.maskSensitiveData(body, "request_body");
             }
         } catch (Exception e) {
-            log.warn("Failed to read request body: {}", e.getMessage());
+            log.warn("[WARN] Failed to read request body: {}", e.getMessage());
         }
         return "";
     }
@@ -139,10 +156,12 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
         try {
             byte[] content = response.getContentAsByteArray();
             if (content.length > 0) {
-                return new String(content, StandardCharsets.UTF_8);
+                String body = new String(content, StandardCharsets.UTF_8);
+                // Apply basic masking for sensitive content
+                return LogFormatUtil.maskSensitiveData(body, "response_body");
             }
         } catch (Exception e) {
-            log.warn("Failed to read response body: {}", e.getMessage());
+            log.warn("[WARN] Failed to read response body: {}", e.getMessage());
         }
         return "";
     }
