@@ -278,6 +278,12 @@ public class QuoteServiceImpl implements QuoteService {
             ).getBody();
             
             log.info("Received updated quote from TMForum API: {}", updatedQuote);
+
+            // Send notifications after successful status update
+            if (updatedQuote != null) {
+                sendStatusUpdateNotifications(updatedQuote, statusValue);
+            }
+            
             return Optional.ofNullable(updatedQuote);
             
         } catch (Exception e) {
@@ -323,6 +329,12 @@ public class QuoteServiceImpl implements QuoteService {
             ).getBody();
             
             log.info("Received updated quote from TMForum API: {}", updatedQuote);
+
+            // Send notification after successful note update
+            if (updatedQuote != null) {
+                sendNoteUpdateNotification(updatedQuote, userId, messageContent);
+            }
+            
             return Optional.ofNullable(updatedQuote);
             
         } catch (Exception e) {
@@ -400,16 +412,19 @@ public class QuoteServiceImpl implements QuoteService {
 
             // Send notification to customer about the new document
             if (updatedQuote != null) {
-                // Find customer ID from relatedParty
-                String customerId = updatedQuote.getRelatedParty().stream()
-                    .filter(party -> "customer".equals(party.getRole()))
-                    .findFirst()
-                    .map(party -> party.getId())
-                    .orElse(null);
+                // Find customer ID from quoteItem.relatedParty where role is "Customer"
+                String customerId = null;
+                if (updatedQuote.getQuoteItem() != null && !updatedQuote.getQuoteItem().isEmpty()) {
+                    customerId = updatedQuote.getQuoteItem().get(0).getRelatedParty().stream()
+                        .filter(party -> "Customer".equals(party.getRole()))
+                        .findFirst()
+                        .map(party -> party.getId())
+                        .orElse(null);
+                }
 
-                // Find provider ID from relatedParty
+                // Find provider ID from quote.relatedParty where role is "Seller"
                 String providerId = updatedQuote.getRelatedParty().stream()
-                    .filter(party -> "seller".equals(party.getRole()))
+                    .filter(party -> "Seller".equals(party.getRole()))
                     .findFirst()
                     .map(party -> party.getId())
                     .orElse(null);
@@ -432,6 +447,10 @@ public class QuoteServiceImpl implements QuoteService {
                         .build();
 
                     notificationService.sendNotification(notification);
+                    
+                    log.info("Notification sent to customer {} about new document upload for quote {}", customerId, quoteId);
+                } else {
+                    log.warn("Could not send notification - customerId: {}, providerId: {}", customerId, providerId);
                 }
             }
             
@@ -964,6 +983,175 @@ public class QuoteServiceImpl implements QuoteService {
         } catch (Exception e) {
             log.error("Error creating attachment from file: {}", e.getMessage());
             throw new RuntimeException("Failed to process uploaded file: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Send notification when a note is added to a quote
+     */
+    private void sendNoteUpdateNotification(QuoteDTO quote, String senderId, String messageContent) {
+        try {
+            // Find the recipient from the relatedParty of the quote
+            // The recipient should be the other party (not the sender)
+            String recipientId = null;
+            
+            // Check if sender is the customer (in quoteItem.relatedParty)
+            boolean senderIsCustomer = false;
+            if (quote.getQuoteItem() != null && !quote.getQuoteItem().isEmpty()) {
+                senderIsCustomer = quote.getQuoteItem().get(0).getRelatedParty().stream()
+                    .anyMatch(party -> senderId.equals(party.getId()) && "Customer".equals(party.getRole()));
+            }
+            
+            if (senderIsCustomer) {
+                // If sender is customer, recipient is seller (from quote.relatedParty)
+                if (quote.getRelatedParty() != null && !quote.getRelatedParty().isEmpty()) {
+                    recipientId = quote.getRelatedParty().stream()
+                        .filter(party -> "Seller".equals(party.getRole()))
+                        .findFirst()
+                        .map(party -> party.getId())
+                        .orElse(null);
+                }
+            } else {
+                // If sender is not customer, check if it's seller (from quote.relatedParty)
+                boolean senderIsSeller = quote.getRelatedParty() != null && 
+                    quote.getRelatedParty().stream()
+                        .anyMatch(party -> senderId.equals(party.getId()) && "Seller".equals(party.getRole()));
+                
+                if (senderIsSeller) {
+                    // If sender is seller, recipient is customer (from quoteItem.relatedParty)
+                    if (quote.getQuoteItem() != null && !quote.getQuoteItem().isEmpty()) {
+                        recipientId = quote.getQuoteItem().get(0).getRelatedParty().stream()
+                            .filter(party -> "Customer".equals(party.getRole()))
+                            .findFirst()
+                            .map(party -> party.getId())
+                            .orElse(null);
+                    }
+                }
+            }
+            
+            // Send notification if we found a recipient
+            if (recipientId != null) {
+                String subject = "New Note Added to Quote";
+                String message = String.format(
+                    "A new note has been added to quote (ID: %s):\n\n%s\n\nSent by: %s",
+                    quote.getId(),
+                    messageContent,
+                    senderId
+                );
+                
+                NotificationRequestDTO notification = NotificationRequestDTO.builder()
+                    .sender(senderId)
+                    .recipient(recipientId)
+                    .subject(subject)
+                    .message(message)
+                    .build();
+                
+                notificationService.sendNotification(notification);
+                log.info("Sent note update notification - sender: {}, recipient: {}, quoteId: {}", 
+                    senderId, recipientId, quote.getId());
+            } else {
+                log.warn("Could not determine recipient for note notification - sender: {}, quoteId: {}", 
+                    senderId, quote.getId());
+            }
+            
+        } catch (Exception e) {
+            log.error("Error sending note update notification for quote {}: {}", quote.getId(), e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Send notifications to customer and seller when quote status is updated
+     */
+    private void sendStatusUpdateNotifications(QuoteDTO quote, String newStatus) {
+        try {
+            // Find customer ID from quoteItem.relatedParty where role is "Customer"
+            String customerId = null;
+            if (quote.getQuoteItem() != null && !quote.getQuoteItem().isEmpty()) {
+                customerId = quote.getQuoteItem().get(0).getRelatedParty().stream()
+                    .filter(party -> "Customer".equals(party.getRole()))
+                    .findFirst()
+                    .map(party -> party.getId())
+                    .orElse(null);
+            }
+
+            // Find seller ID from quote.relatedParty where role is "Seller"
+            String sellerId = null;
+            if (quote.getRelatedParty() != null && !quote.getRelatedParty().isEmpty()) {
+                sellerId = quote.getRelatedParty().stream()
+                    .filter(party -> "Seller".equals(party.getRole()))
+                    .findFirst()
+                    .map(party -> party.getId())
+                    .orElse(null);
+            }
+
+            // Create status-specific messages
+            String statusMessage = getStatusUpdateMessage(newStatus);
+            String subject = "Quote Status Updated - " + newStatus;
+
+            // Send notification to customer
+            if (customerId != null && sellerId != null) {
+                NotificationRequestDTO customerNotification = NotificationRequestDTO.builder()
+                    .sender(sellerId)
+                    .recipient(customerId)
+                    .subject(subject)
+                    .message(String.format(
+                        "Your quote (ID: %s) status has been updated to: %s\n\n%s",
+                        quote.getId(),
+                        newStatus,
+                        statusMessage
+                    ))
+                    .build();
+
+                notificationService.sendNotification(customerNotification);
+                log.info("Status update notification sent to customer {} for quote {}", customerId, quote.getId());
+            } else {
+                log.warn("Could not send customer notification - customerId: {}, sellerId: {}", customerId, sellerId);
+            }
+
+            // Send notification to seller
+            if (sellerId != null && customerId != null) {
+                NotificationRequestDTO sellerNotification = NotificationRequestDTO.builder()
+                    .sender(customerId)
+                    .recipient(sellerId)
+                    .subject(subject)
+                    .message(String.format(
+                        "Quote (ID: %s) status has been updated to: %s\n\n%s",
+                        quote.getId(),
+                        newStatus,
+                        statusMessage
+                    ))
+                    .build();
+
+                notificationService.sendNotification(sellerNotification);
+                log.info("Status update notification sent to seller {} for quote {}", sellerId, quote.getId());
+            } else {
+                log.warn("Could not send seller notification - customerId: {}, sellerId: {}", customerId, sellerId);
+            }
+
+        } catch (Exception e) {
+            log.error("Error sending status update notifications: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Get a user-friendly message based on the status update
+     */
+    private String getStatusUpdateMessage(String status) {
+        switch (status.toLowerCase()) {
+            case "inprogress":
+                return "The quote is currently being processed by our sales team. We are working on building the quote according to your requirements.";
+            case "pending":
+                return "The quote is pending validation from our perspective for tariff validation or to capture detailed information.";
+            case "approved":
+                return "The quote has been internally approved and is ready for your review. The quote is no longer updatable.";
+            case "cancelled":
+                return "The quote process has been stopped. This quote has never been sent to the customer.";
+            case "accepted":
+                return "The quote has been accepted and signed by the customer. The order has been committed.";
+            case "rejected":
+                return "The quote has been rejected by the customer. No further quotes will be initiated from this quotation.";
+            default:
+                return "The quote status has been updated. Please review the quote for more details.";
         }
     }
 
