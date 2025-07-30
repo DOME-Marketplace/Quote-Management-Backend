@@ -242,8 +242,8 @@ public class QuoteServiceImpl implements QuoteService {
     }
     
     @Override
-    public Optional<QuoteDTO> updateQuoteStatus(String quoteId, String statusValue, String userId) {
-        log.debug("Updating quote status - quoteId: '{}', statusValue: '{}', userId: '{}'", quoteId, statusValue, userId);
+    public Optional<QuoteDTO> updateQuoteStatus(String quoteId, String statusValue) {
+        log.debug("Updating quote status - quoteId: '{}', statusValue: '{}'", quoteId, statusValue);
         
         try {
             // First, get the current quote
@@ -278,12 +278,6 @@ public class QuoteServiceImpl implements QuoteService {
             ).getBody();
             
             log.info("Received updated quote from TMForum API: {}", updatedQuote);
-
-            // Send notification after successful status update
-            if (updatedQuote != null) {
-                sendStatusChangeNotification(updatedQuote, statusValue, userId);
-            }
-            
             return Optional.ofNullable(updatedQuote);
             
         } catch (Exception e) {
@@ -1039,86 +1033,6 @@ public class QuoteServiceImpl implements QuoteService {
         log.error("Attachment was not persisted after {} attempts and {} seconds total wait time for file: {}", 
                 maxAttempts, (maxAttempts * delayMs) / 1000, fileName);
         throw new RuntimeException("File upload failed: attachment was not persisted within timeout period. Please try again.");
-    }
-
-    /**
-     * Send notification when quote status changes
-     * When seller changes status: notify customer
-     * When customer changes status: notify seller
-     */
-    private void sendStatusChangeNotification(QuoteDTO updatedQuote, String statusValue, String userId) {
-        String customerId = null;
-        String providerId = null;
-
-        // Find customer and provider IDs from the quote structure:
-
-        // First, try to find customer in QuoteItem.RelatedParty
-        if (updatedQuote.getQuoteItem() != null && !updatedQuote.getQuoteItem().isEmpty()) {
-            for (QuoteItemDTO quoteItem : updatedQuote.getQuoteItem()) {
-                if (quoteItem.getRelatedParty() != null) {
-                    for (com.dome.quotemanagement.dto.tmforum.RelatedPartyDTO party : quoteItem.getRelatedParty()) {
-                        if ("Customer".equalsIgnoreCase(party.getRole())) {
-                            customerId = party.getId();
-                            break;
-                        }
-                    }
-                }
-                if (customerId != null) break;
-            }
-        }
-
-        // Find seller in Quote.RelatedParty
-        if (updatedQuote.getRelatedParty() != null) {
-            for (com.dome.quotemanagement.dto.tmforum.RelatedPartyDTO party : updatedQuote.getRelatedParty()) {
-                if ("Seller".equalsIgnoreCase(party.getRole())) {
-                    providerId = party.getId();
-                    break;
-                }
-            }
-        }
-
-        // Determine who is making the change and who should receive the notification
-        String senderId = null;
-        String recipientId = null;
-
-        if (userId != null && !userId.trim().isEmpty()) {
-            if (userId.equals(providerId)) {
-                // Seller is making the change, notify customer
-                senderId = providerId;
-                recipientId = customerId;
-            } else if (userId.equals(customerId)) {
-                // Customer is making the change, notify seller
-                senderId = customerId;
-                recipientId = providerId;
-            } else {
-                senderId = providerId;
-                recipientId = customerId;
-            }
-        } else {
-            senderId = providerId;
-            recipientId = customerId;
-        }
-
-        if (senderId != null && recipientId != null) {
-            String message = String.format(
-                "Your quote (ID: %s) has been updated to status '%s'.",
-                updatedQuote.getId(),
-                statusValue
-            );
-
-            NotificationRequestDTO notification = NotificationRequestDTO.builder()
-                .sender(senderId)
-                .recipient(recipientId)
-                .subject("Quote Status Updated")
-                .message(message)
-                .build();
-
-            notificationService.sendNotification(notification);
-            log.info("Sent status change notification from {} to {} for quote: {}", senderId, recipientId, updatedQuote.getId());
-        } else {
-            log.warn("Could not determine notification recipient for status change. Quote ID: {}, Status: {}, User ID: {}, Customer ID: {}, Provider ID: {}",
-                updatedQuote.getId(), statusValue, userId, customerId, providerId);
-        }
     }
 }
 

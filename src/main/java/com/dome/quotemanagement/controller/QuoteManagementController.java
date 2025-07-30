@@ -172,15 +172,13 @@ public class QuoteManagementController {
             @Parameter(description = "Quote ID", required = true)
             @PathVariable String id,
             @Parameter(description = "New status value (inProgress, pending, approved, cancelled, accepted, rejected)", required = true)
-            @RequestParam String statusValue,
-            @Parameter(description = "User ID of the person updating the status", required = true)
-            @RequestParam String userId) {
-        log.info("Received request to update quote status - quoteId: '{}', statusValue: '{}', userId: '{}'", id, statusValue, userId);
+            @RequestParam String statusValue) {
+        log.info("Received request to update quote status - quoteId: '{}', statusValue: '{}'", id, statusValue);
         
         try {
-            return quoteService.updateQuoteStatus(id, statusValue, userId)
+            return quoteService.updateQuoteStatus(id, statusValue)
                     .map(quote -> {
-                        log.info("Successfully updated quote status - quoteId: '{}', statusValue: '{}', userId: '{}'", id, statusValue, userId);
+                        log.info("Successfully updated quote status - quoteId: '{}', statusValue: '{}'", id, statusValue);
                         return ResponseEntity.ok(quote);
                     })
                     .orElseGet(() -> {
@@ -188,7 +186,7 @@ public class QuoteManagementController {
                         return ResponseEntity.notFound().build();
                     });
         } catch (Exception e) {
-            log.error("Error updating quote status - quoteId: '{}', statusValue: '{}', userId: '{}': {}", id, statusValue, userId, e.getMessage(), e);
+            log.error("Error updating quote status - quoteId: '{}', statusValue: '{}': {}", id, statusValue, e.getMessage(), e);
             throw e;
         }
     }
