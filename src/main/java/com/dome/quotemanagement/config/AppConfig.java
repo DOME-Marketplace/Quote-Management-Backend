@@ -37,6 +37,10 @@ public class AppConfig {
     @Value("${notification.api.endpoint:/charging/api/orderManagement/notify}")
     private String notificationEndpoint;
     
+    // DID Configuration - configurable through properties, the marketplace identifier
+    @Value("${did.identifier:did:elsi:VATES-11111111P}")
+    private String didIdentifier;
+    
     // Public getters to maintain backward compatibility
     public String getTmforumQuoteEndpoint() {
         return tmforumQuoteEndpoint;
@@ -48,6 +52,10 @@ public class AppConfig {
     
     public String getNotificationEndpoint() {
         return notificationEndpoint;
+    }
+    
+    public String getDidIdentifier() {
+        return didIdentifier;
     }
     
     @Autowired

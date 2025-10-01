@@ -856,7 +856,7 @@ public class QuoteServiceImpl implements QuoteService {
                 quoteJson.put("description", customerMessage);
             }
             
-            // Add relatedParty array for seller/provider only
+            // Add relatedParty array for seller/provider
             // The seller/provider is placed at the Quote level since they are the main party responsible for the quote
             ArrayNode relatedPartyArray = objectMapper.createArrayNode();
             
@@ -866,11 +866,23 @@ public class QuoteServiceImpl implements QuoteService {
                 providerParty.put("id", providerIdRef);
                 providerParty.put("href", providerIdRef);
                 providerParty.put("role", "Seller");
+                providerParty.put("name", providerIdRef);
                 providerParty.put("@referredType", "organization");
                 relatedPartyArray.add(providerParty);
             }
+
+            // Always add SellerOperator (marketplace operator) - this represents the marketplace DID
+            ObjectNode sellerOperator = objectMapper.createObjectNode();
+            sellerOperator.put("id", appConfig.getDidIdentifier());
+            sellerOperator.put("href", appConfig.getDidIdentifier());
+            sellerOperator.put("role", "SellerOperator");
+            sellerOperator.put("name", appConfig.getDidIdentifier());
+            sellerOperator.put("@referredType", "organization");
+            relatedPartyArray.add(sellerOperator);
+            log.info("Added SellerOperator to quote-level relatedParty array with DID: {}", appConfig.getDidIdentifier());
             
             quoteJson.set("relatedParty", relatedPartyArray);
+            log.info("Set quote-level relatedParty array with {} entries", relatedPartyArray.size());
             
             // Add at least one quoteItem as required by the API
             ArrayNode quoteItemArray = objectMapper.createArrayNode();
@@ -891,10 +903,21 @@ public class QuoteServiceImpl implements QuoteService {
                 customerParty.put("id", customerIdRef);
                 customerParty.put("href", customerIdRef);
                 customerParty.put("role", "Customer");
+                customerParty.put("name", customerIdRef);
                 customerParty.put("@referredType", "individual");
                 quoteItemRelatedPartyArray.add(customerParty);
+                
+                ObjectNode buyerOperator = objectMapper.createObjectNode();
+                buyerOperator.put("id", appConfig.getDidIdentifier());
+                buyerOperator.put("href", appConfig.getDidIdentifier());
+                buyerOperator.put("role", "BuyerOperator");
+                buyerOperator.put("name", appConfig.getDidIdentifier());
+                buyerOperator.put("@referredType", "organization");
+                quoteItemRelatedPartyArray.add(buyerOperator);
+
                 quoteItem.set("relatedParty", quoteItemRelatedPartyArray);
             }
+
             
             // Add productOffering reference if productOfferingId is provided
             if (productOfferingId != null && !productOfferingId.trim().isEmpty()) {
