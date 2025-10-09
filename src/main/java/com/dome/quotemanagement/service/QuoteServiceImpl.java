@@ -79,6 +79,7 @@ public class QuoteServiceImpl implements QuoteService {
     public List<QuoteDTO> findQuotesByUser(String userId, String role) {
         String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteListEndpoint();
         log.debug("Calling external TMForum API: {}", url);
+        log.debug("Find tailored quotes parameters - userId: '{}', role: '{}'", userId, role);
         
         try {
             HttpHeaders headers = new HttpHeaders();
@@ -98,45 +99,217 @@ public class QuoteServiceImpl implements QuoteService {
                 return Collections.emptyList();
             }
             
-            log.info("Retrieved {} quotes from TMForum API", quotes.length);
+            log.info("Retrieved {} quotes from TMForum API for tailored filtering", quotes.length);
             
-            // Filter quotes based on user ID location and role
+            // Filter quotes based on user ID location, role, and category="tailored"
             List<QuoteDTO> filteredQuotes = Arrays.stream(quotes)
                 .filter(quote -> {
+                    // First, check if the quote matches the user and role criteria
+                    boolean userRoleMatch = false;
                     if ("Seller".equalsIgnoreCase(role)) {
                         // Check if user is a seller (in Quote.RelatedParty)
-                        if (quote.getRelatedParty() == null) {
-                            return false;
+                        if (quote.getRelatedParty() != null) {
+                            userRoleMatch = quote.getRelatedParty().stream()
+                                .anyMatch(party -> userId.equals(party.getId()));
                         }
-                        return quote.getRelatedParty().stream()
-                            .anyMatch(party -> userId.equals(party.getId()));
                     } else if ("Customer".equalsIgnoreCase(role)) {
                         // Check if user is a buyer (in Quote.QuoteItem.RelatedParty)
-                        if (quote.getQuoteItem() == null) {
-                            return false;
+                        if (quote.getQuoteItem() != null) {
+                            userRoleMatch = quote.getQuoteItem().stream()
+                                .anyMatch(item -> {
+                                    if (item == null || item.getRelatedParty() == null) {
+                                        return false;
+                                    }
+                                    return item.getRelatedParty().stream()
+                                        .anyMatch(party -> userId.equals(party.getId()));
+                                });
                         }
-                        return quote.getQuoteItem().stream()
-                            .anyMatch(item -> {
-                                if (item == null || item.getRelatedParty() == null) {
-                                    return false;
-                                }
-                                return item.getRelatedParty().stream()
-                                    .anyMatch(party -> userId.equals(party.getId()));
-                            });
                     } else {
                         log.warn("Invalid role provided: {}", role);
                         return false;
                     }
+                    
+                    // If user/role doesn't match, exclude this quote
+                    if (!userRoleMatch) {
+                        return false;
+                    }
+                    
+                    // Check if category is "tailored" (hardcoded for this method)
+                    if (!"tailored".equalsIgnoreCase(quote.getCategory())) {
+                        return false;
+                    }
+                    
+                    return true;
                 })
                 .collect(Collectors.toList());
             
-            log.info("Filtered {} quotes for user {} with role {}: {} quotes found", 
+            log.info("Filtered {} quotes for tailored - user: '{}', role: '{}': {} quotes found", 
                 quotes.length, userId, role, filteredQuotes.size());
             
             return filteredQuotes;
             
         } catch (Exception e) {
             log.error("Error finding quotes by user: {}", e.getMessage(), e);
+            return Collections.emptyList();
+        }
+    }
+    
+    @Override
+    public List<QuoteDTO> findTenderingQuotesByUser(String userId, String role, String externalId) {
+        String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteListEndpoint();
+        log.debug("Calling external TMForum API: {}", url);
+        log.debug("Find tendering quotes parameters - userId: '{}', role: '{}', externalId: '{}'", userId, role, externalId);
+        
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+            HttpEntity<?> request = new HttpEntity<>(headers);
+            
+            ResponseEntity<QuoteDTO[]> response = restTemplate.exchange(
+                url,
+                HttpMethod.GET,
+                request,
+                QuoteDTO[].class
+            );
+            
+            QuoteDTO[] quotes = response.getBody();
+            if (quotes == null) {
+                log.warn("No quotes found in response");
+                return Collections.emptyList();
+            }
+            
+            log.info("Retrieved {} quotes from TMForum API for tendering filtering", quotes.length);
+            
+            // Filter quotes based on user ID, role, category="tender", and externalId
+            List<QuoteDTO> filteredQuotes = Arrays.stream(quotes)
+                .filter(quote -> {
+                    // First, check if the quote matches the user and role criteria
+                    boolean userRoleMatch = false;
+                    if ("Seller".equalsIgnoreCase(role)) {
+                        // Check if user is a seller (in Quote.RelatedParty)
+                        if (quote.getRelatedParty() != null) {
+                            userRoleMatch = quote.getRelatedParty().stream()
+                                .anyMatch(party -> userId.equals(party.getId()));
+                        }
+                    } else if ("Customer".equalsIgnoreCase(role)) {
+                        // Check if user is a buyer (in Quote.QuoteItem.RelatedParty)
+                        if (quote.getQuoteItem() != null) {
+                            userRoleMatch = quote.getQuoteItem().stream()
+                                .anyMatch(item -> {
+                                    if (item == null || item.getRelatedParty() == null) {
+                                        return false;
+                                    }
+                                    return item.getRelatedParty().stream()
+                                        .anyMatch(party -> userId.equals(party.getId()));
+                                });
+                        }
+                    } else {
+                        log.warn("Invalid role provided: {}", role);
+                        return false;
+                    }
+                    
+                    // If user/role doesn't match, exclude this quote
+                    if (!userRoleMatch) {
+                        return false;
+                    }
+                    
+                    // Check if category is "tender"
+                    if (!"tender".equalsIgnoreCase(quote.getCategory())) {
+                        return false;
+                    }
+                    
+                    // Check if externalId matches (required for tendering)
+                    if (externalId == null || !externalId.equals(quote.getExternalId())) {
+                        return false;
+                    }
+                    
+                    return true;
+                })
+                .collect(Collectors.toList());
+            
+            log.info("Filtered {} quotes for tendering - user: '{}', role: '{}', externalId: '{}': {} quotes found", 
+                quotes.length, userId, role, externalId, filteredQuotes.size());
+            
+            return filteredQuotes;
+            
+        } catch (Exception e) {
+            log.error("Error finding tendering quotes by user: {}", e.getMessage(), e);
+            return Collections.emptyList();
+        }
+    }
+    
+    @Override
+    public List<QuoteDTO> findCoordinatorQuotesByUser(String userId, String role) {
+        String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteListEndpoint();
+        log.debug("Calling external TMForum API: {}", url);
+        log.debug("Find coordinator quotes parameters - userId: '{}', role: '{}'", userId, role);
+        
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+            HttpEntity<?> request = new HttpEntity<>(headers);
+            
+            ResponseEntity<QuoteDTO[]> response = restTemplate.exchange(
+                url,
+                HttpMethod.GET,
+                request,
+                QuoteDTO[].class
+            );
+            
+            QuoteDTO[] quotes = response.getBody();
+            if (quotes == null) {
+                log.warn("No quotes found in response");
+                return Collections.emptyList();
+            }
+            
+            log.info("Retrieved {} quotes from TMForum API for coordinator filtering", quotes.length);
+            
+            // Filter quotes based on user ID, role, and category="coordinator"
+            List<QuoteDTO> filteredQuotes = Arrays.stream(quotes)
+                .filter(quote -> {
+                    // First, check if the quote matches the user and role criteria
+                    boolean userRoleMatch = false;
+                    if ("Seller".equalsIgnoreCase(role)) {
+                        // Check if user is a seller (in Quote.RelatedParty)
+                        if (quote.getRelatedParty() != null) {
+                            userRoleMatch = quote.getRelatedParty().stream()
+                                .anyMatch(party -> userId.equals(party.getId()));
+                        }
+                    } else if ("Customer".equalsIgnoreCase(role)) {
+                        // Check if user is a buyer (in Quote.QuoteItem.RelatedParty)
+                        if (quote.getQuoteItem() != null) {
+                            userRoleMatch = quote.getQuoteItem().stream()
+                                .anyMatch(item -> {
+                                    if (item == null || item.getRelatedParty() == null) {
+                                        return false;
+                                    }
+                                    return item.getRelatedParty().stream()
+                                        .anyMatch(party -> userId.equals(party.getId()) && 
+                                                         "Customer".equalsIgnoreCase(party.getRole()));
+                                });
+                        }
+                    }
+                    
+                    if (!userRoleMatch) {
+                        return false;
+                    }
+                    
+                    // Check if category matches "coordinator" (hardcoded for this method)
+                    if (!"coordinator".equals(quote.getCategory())) {
+                        return false;
+                    }
+                    
+                    return true;
+                })
+                .collect(Collectors.toList());
+            
+            log.info("Filtered {} quotes for coordinator - user: '{}', role: '{}': {} quotes found", 
+                quotes.length, userId, role, filteredQuotes.size());
+            
+            return filteredQuotes;
+            
+        } catch (Exception e) {
+            log.error("Error finding coordinator quotes by user: {}", e.getMessage(), e);
             return Collections.emptyList();
         }
     }
@@ -184,14 +357,22 @@ public class QuoteServiceImpl implements QuoteService {
     
     @Override
     public QuoteDTO create(String customerMessage, String customerIdRef, String providerIdRef, String productOfferingId) {
+        log.debug("Creating tailored quote with parameters - customerMessage: '{}', customerIdRef: '{}', providerIdRef: '{}', productOfferingId: '{}'", 
+                  customerMessage, customerIdRef, providerIdRef, productOfferingId);
+        
+        // For tailored quotes: category="tailored" (hardcoded), externalId="0000" (not significant)
+        return createInternal(customerMessage, customerIdRef, providerIdRef, productOfferingId, "tailored", "0000");
+    }
+    
+    private QuoteDTO createInternal(String customerMessage, String customerIdRef, String providerIdRef, String productOfferingId, String category, String externalId) {
         String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteEndpoint();
         log.debug("Calling external TMForum API: {}", url);
-        log.debug("Create quote parameters - customerMessage: '{}', customerIdRef: '{}', providerIdRef: '{}', productOfferingId: '{}'", 
-                  customerMessage, customerIdRef, providerIdRef, productOfferingId);
+        log.debug("Create quote parameters - customerMessage: '{}', customerIdRef: '{}', providerIdRef: '{}', productOfferingId: '{}', category: '{}', externalId: '{}'", 
+                  customerMessage, customerIdRef, providerIdRef, productOfferingId, category, externalId);
         
         try {
             // Build a minimal JSON payload that conforms to TMForum standards
-            String jsonPayload = buildCreateQuoteJson(customerMessage, customerIdRef, providerIdRef, productOfferingId);
+            String jsonPayload = buildCreateQuoteJson(customerMessage, customerIdRef, providerIdRef, productOfferingId, category, externalId);
             
             // Set proper headers for JSON
             HttpHeaders headers = new HttpHeaders();
@@ -238,6 +419,51 @@ public class QuoteServiceImpl implements QuoteService {
         } catch (Exception e) {
             log.error("Error creating quote: {}", e.getMessage(), e);
             throw new RuntimeException("Failed to create quote", e);
+        }
+    }
+    
+    @Override
+    public QuoteDTO createTenderingQuote(String customerMessage, String customerIdRef, String providerIdRef, String externalId) {
+        log.debug("Creating tendering quote with parameters - customerMessage: '{}', customerIdRef: '{}', providerIdRef: '{}', externalId: '{}'", 
+                  customerMessage, customerIdRef, providerIdRef, externalId);
+        
+        // For tendering quotes: category="tender" (hardcoded), externalId from parameter, no productOfferingId needed
+        return createInternal(customerMessage, customerIdRef, providerIdRef, null, "tender", externalId);
+    }
+    
+    @Override
+    public QuoteDTO createCoordinatorQuote(String customerMessage, String customerIdRef) {
+        log.debug("Creating coordinator quote with parameters - customerMessage: '{}', customerIdRef: '{}'", 
+                  customerMessage, customerIdRef);
+        
+        String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteEndpoint();
+        log.debug("Calling external TMForum API for coordinator quote: {}", url);
+        
+        try {
+            // Build a minimal JSON payload for coordinator quote
+            String jsonPayload = buildCoordinatorQuoteJson(customerMessage, customerIdRef);
+            
+            // Set proper headers for JSON
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("Accept", "application/json");
+            
+            HttpEntity<String> request = new HttpEntity<>(jsonPayload, headers);
+            
+            log.info("Sending coordinator quote JSON payload to TMForum API: {}", jsonPayload);
+            
+            QuoteDTO response = restTemplate.postForObject(url, request, QuoteDTO.class);
+            log.info("Received coordinator quote response from TMForum API: {}", response);
+            
+            if (response != null) {
+                log.info("Coordinator quote created with ID: {}", response.getId());
+            }
+            
+            return response;
+            
+        } catch (Exception e) {
+            log.error("Error creating coordinator quote: {}", e.getMessage(), e);
+            throw new RuntimeException("Failed to create coordinator quote", e);
         }
     }
     
@@ -844,9 +1070,9 @@ public class QuoteServiceImpl implements QuoteService {
     }
     
     /**
-     * Build a minimal JSON payload that conforms to TMForum Quote creation standards
+     * Build a minimal JSON payload for coordinator quote creation
      */
-    private String buildCreateQuoteJson(String customerMessage, String customerIdRef, String providerIdRef, String productOfferingId) {
+    private String buildCoordinatorQuoteJson(String customerMessage, String customerIdRef) {
         try {
             // Create the root JSON object
             ObjectNode quoteJson = objectMapper.createObjectNode();
@@ -854,6 +1080,79 @@ public class QuoteServiceImpl implements QuoteService {
             // Add description if provided
             if (customerMessage != null && !customerMessage.trim().isEmpty()) {
                 quoteJson.put("description", customerMessage);
+            }
+            
+            // Add category for coordinator quote
+            quoteJson.put("category", "coordinator");
+            
+            // Add at least one quoteItem as required by the API (minimal structure for coordinator)
+            ArrayNode quoteItemArray = objectMapper.createArrayNode();
+            ObjectNode quoteItem = objectMapper.createObjectNode();
+            quoteItem.put("@type", "QuoteItem");
+            quoteItem.put("action", "add");
+            quoteItem.put("state", "pending");
+            quoteItem.put("quantity", 1);
+            quoteItem.set("note", objectMapper.createObjectNode()); // Empty note object
+            
+            // Add customer as relatedParty in the quoteItem (same pattern as other creates)
+            if (customerIdRef != null && !customerIdRef.trim().isEmpty()) {
+                ArrayNode quoteItemRelatedPartyArray = objectMapper.createArrayNode();
+                ObjectNode customerParty = objectMapper.createObjectNode();
+                customerParty.put("@type", "RelatedParty");
+                customerParty.put("id", customerIdRef);
+                customerParty.put("href", customerIdRef);
+                customerParty.put("role", "Customer");
+                customerParty.put("name", customerIdRef);
+                customerParty.put("@referredType", "individual");
+                quoteItemRelatedPartyArray.add(customerParty);
+                
+                ObjectNode buyerOperator = objectMapper.createObjectNode();
+                buyerOperator.put("id", appConfig.getDidIdentifier());
+                buyerOperator.put("href", appConfig.getDidIdentifier());
+                buyerOperator.put("role", "BuyerOperator");
+                buyerOperator.put("name", appConfig.getDidIdentifier());
+                buyerOperator.put("@referredType", "organization");
+                quoteItemRelatedPartyArray.add(buyerOperator);
+
+                quoteItem.set("relatedParty", quoteItemRelatedPartyArray);
+            }
+            
+            quoteItemArray.add(quoteItem);
+            quoteJson.set("quoteItem", quoteItemArray);
+            
+            // Log the final JSON for debugging
+            String jsonPayload = objectMapper.writeValueAsString(quoteJson);
+            log.info("Created coordinator quote JSON payload: {}", jsonPayload);
+            
+            return jsonPayload;
+            
+        } catch (Exception e) {
+            log.error("Error building coordinator quote JSON: {}", e.getMessage());
+            throw new RuntimeException("Failed to build coordinator quote JSON", e);
+        }
+    }
+    
+    /**
+     * Build a minimal JSON payload that conforms to TMForum Quote creation standards
+     */
+    private String buildCreateQuoteJson(String customerMessage, String customerIdRef, String providerIdRef, String productOfferingId, String category, String externalId) {
+        try {
+            // Create the root JSON object
+            ObjectNode quoteJson = objectMapper.createObjectNode();
+            
+            // Add description if provided
+            if (customerMessage != null && !customerMessage.trim().isEmpty()) {
+                quoteJson.put("description", customerMessage);
+            }
+            
+            // Add category if provided
+            if (category != null && !category.trim().isEmpty()) {
+                quoteJson.put("category", category);
+            }
+            
+            // Add externalId if provided
+            if (externalId != null && !externalId.trim().isEmpty()) {
+                quoteJson.put("externalId", externalId);
             }
             
             // Add relatedParty array for seller/provider
