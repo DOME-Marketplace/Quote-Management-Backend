@@ -146,38 +146,31 @@ public class QuoteManagementController {
     @Operation(
         summary = "List coordinator quotes by user", 
         description = "Retrieves all coordinator (shadow) quotes for a specific user. " +
-                     "This endpoint filters quotes by: userId + role + category='coordinator'. " +
+                     "This endpoint filters quotes by: userId + category='coordinator'. " +
                      "Coordinator quotes are used for managing tendering processes and are not displayed in regular user GUIs."
     )
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "Successfully retrieved coordinator quotes",
                     content = @Content(mediaType = "application/json", schema = @Schema(implementation = QuoteDTO.class))),
-        @ApiResponse(responseCode = "400", description = "Invalid user ID or role"),
+        @ApiResponse(responseCode = "400", description = "Invalid user ID"),
         @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     public ResponseEntity<List<QuoteDTO>> listCoordinatorQuotesByUser(
             @Parameter(description = "User ID to filter quotes by", required = true)
-            @PathVariable String userId,
-            @Parameter(description = "Role to filter quotes by ('Customer' or 'Seller')", required = true)
-            @RequestParam String role) {
-        log.info("Received request to list coordinator quotes for user: '{}' with role: '{}'", userId, role);
+            @PathVariable String userId) {
+        log.info("Received request to list coordinator quotes for user: '{}'", userId);
         
         if (userId == null || userId.trim().isEmpty()) {
             log.warn("Invalid user ID provided: '{}'", userId);
             return ResponseEntity.badRequest().build();
         }
         
-        if (role == null || role.trim().isEmpty()) {
-            log.warn("Invalid role provided: '{}'", role);
-            return ResponseEntity.badRequest().build();
-        }
-        
         try {
-            List<QuoteDTO> quotes = quoteService.findCoordinatorQuotesByUser(userId, role);
-            log.info("Successfully retrieved {} coordinator quotes for user: '{}' with role: '{}'", quotes.size(), userId, role);
+            List<QuoteDTO> quotes = quoteService.findCoordinatorQuotesByUser(userId);
+            log.info("Successfully retrieved {} coordinator quotes for user: '{}'", quotes.size(), userId);
             return ResponseEntity.ok(quotes);
         } catch (Exception e) {
-            log.error("Error listing coordinator quotes for user '{}' with role '{}': {}", userId, role, e.getMessage(), e);
+            log.error("Error listing coordinator quotes for user '{}': {}", userId, e.getMessage(), e);
             throw e;
         }
     }

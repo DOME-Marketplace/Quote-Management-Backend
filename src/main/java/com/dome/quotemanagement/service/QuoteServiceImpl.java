@@ -239,10 +239,10 @@ public class QuoteServiceImpl implements QuoteService {
     }
     
     @Override
-    public List<QuoteDTO> findCoordinatorQuotesByUser(String userId, String role) {
+    public List<QuoteDTO> findCoordinatorQuotesByUser(String userId) {
         String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteListEndpoint();
         log.debug("Calling external TMForum API: {}", url);
-        log.debug("Find coordinator quotes parameters - userId: '{}', role: '{}'", userId, role);
+        log.debug("Find coordinator quotes parameters - userId: '{}'", userId);
         
         try {
             HttpHeaders headers = new HttpHeaders();
@@ -264,33 +264,31 @@ public class QuoteServiceImpl implements QuoteService {
             
             log.info("Retrieved {} quotes from TMForum API for coordinator filtering", quotes.length);
             
-            // Filter quotes based on user ID, role, and category="coordinator"
+            // Filter quotes based on user ID and category="coordinator"
             List<QuoteDTO> filteredQuotes = Arrays.stream(quotes)
                 .filter(quote -> {
-                    // First, check if the quote matches the user and role criteria
-                    boolean userRoleMatch = false;
-                    if ("Seller".equalsIgnoreCase(role)) {
-                        // Check if user is a seller (in Quote.RelatedParty)
-                        if (quote.getRelatedParty() != null) {
-                            userRoleMatch = quote.getRelatedParty().stream()
-                                .anyMatch(party -> userId.equals(party.getId()));
-                        }
-                    } else if ("Customer".equalsIgnoreCase(role)) {
-                        // Check if user is a buyer (in Quote.QuoteItem.RelatedParty)
-                        if (quote.getQuoteItem() != null) {
-                            userRoleMatch = quote.getQuoteItem().stream()
-                                .anyMatch(item -> {
-                                    if (item == null || item.getRelatedParty() == null) {
-                                        return false;
-                                    }
-                                    return item.getRelatedParty().stream()
-                                        .anyMatch(party -> userId.equals(party.getId()) && 
-                                                         "Customer".equalsIgnoreCase(party.getRole()));
-                                });
-                        }
+                    // Check if the quote matches the user criteria (check both seller and customer locations)
+                    boolean userMatch = false;
+                    
+                    // Check if user is a seller (in Quote.RelatedParty)
+                    if (quote.getRelatedParty() != null) {
+                        userMatch = quote.getRelatedParty().stream()
+                            .anyMatch(party -> userId.equals(party.getId()));
                     }
                     
-                    if (!userRoleMatch) {
+                    // If not found as seller, check if user is a customer (in Quote.QuoteItem.RelatedParty)
+                    if (!userMatch && quote.getQuoteItem() != null) {
+                        userMatch = quote.getQuoteItem().stream()
+                            .anyMatch(item -> {
+                                if (item == null || item.getRelatedParty() == null) {
+                                    return false;
+                                }
+                                return item.getRelatedParty().stream()
+                                    .anyMatch(party -> userId.equals(party.getId()));
+                            });
+                    }
+                    
+                    if (!userMatch) {
                         return false;
                     }
                     
@@ -303,8 +301,8 @@ public class QuoteServiceImpl implements QuoteService {
                 })
                 .collect(Collectors.toList());
             
-            log.info("Filtered {} quotes for coordinator - user: '{}', role: '{}': {} quotes found", 
-                quotes.length, userId, role, filteredQuotes.size());
+            log.info("Filtered {} quotes for coordinator - user: '{}': {} quotes found", 
+                quotes.length, userId, filteredQuotes.size());
             
             return filteredQuotes;
             
