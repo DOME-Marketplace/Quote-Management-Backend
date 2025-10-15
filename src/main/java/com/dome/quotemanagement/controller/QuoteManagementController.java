@@ -98,14 +98,15 @@ public class QuoteManagementController {
     @GetMapping("/tendering/quotes/{userId}")
     @Operation(
         summary = "List tendering quotes by user and external ID", 
-        description = "Retrieves all tendering quotes for a specific user within a tendering process (same externalId). " +
-                     "This endpoint filters quotes by: userId + role + category='tender' + externalId. " +
-                     "Used to get all quotes related to the same tendering process."
+        description = "Retrieves all tendering quotes for a specific user. " +
+                     "This endpoint filters quotes by: userId + role + category='tender' + externalId (optional). " +
+                     "If externalId is provided, returns quotes for that specific tendering process. " +
+                     "If externalId is not provided, returns all tender quotes for the user (useful for providers to see all their tender quotes)."
     )
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "Successfully retrieved tendering quotes",
                     content = @Content(mediaType = "application/json", schema = @Schema(implementation = QuoteDTO.class))),
-        @ApiResponse(responseCode = "400", description = "Invalid user ID, role, or external ID"),
+        @ApiResponse(responseCode = "400", description = "Invalid user ID or role"),
         @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     public ResponseEntity<List<QuoteDTO>> listTenderingQuotesByUser(
@@ -113,8 +114,8 @@ public class QuoteManagementController {
             @PathVariable String userId,
             @Parameter(description = "Role to filter quotes by ('Customer' or 'Seller')", required = true)
             @RequestParam String role,
-            @Parameter(description = "External ID to group tendering quotes by the same process", required = true)
-            @RequestParam String externalId) {
+            @Parameter(description = "External ID to group tendering quotes by the same process (optional - if not provided, returns all tender quotes for the user)", required = false)
+            @RequestParam(required = false) String externalId) {
         log.info("Received request to list tendering quotes for user: '{}' with role: '{}' and externalId: '{}'", userId, role, externalId);
         
         if (userId == null || userId.trim().isEmpty()) {
@@ -127,14 +128,13 @@ public class QuoteManagementController {
             return ResponseEntity.badRequest().build();
         }
         
-        if (externalId == null || externalId.trim().isEmpty()) {
-            log.warn("Invalid external ID provided: '{}'", externalId);
-            return ResponseEntity.badRequest().build();
-        }
-        
         try {
             List<QuoteDTO> quotes = quoteService.findTenderingQuotesByUser(userId, role, externalId);
-            log.info("Successfully retrieved {} tendering quotes for user: '{}' with role: '{}' and externalId: '{}'", quotes.size(), userId, role, externalId);
+            if (externalId != null && !externalId.trim().isEmpty()) {
+                log.info("Successfully retrieved {} tendering quotes for user: '{}' with role: '{}' and externalId: '{}'", quotes.size(), userId, role, externalId);
+            } else {
+                log.info("Successfully retrieved {} tendering quotes for user: '{}' with role: '{}' (all tender quotes)", quotes.size(), userId, role);
+            }
             return ResponseEntity.ok(quotes);
         } catch (Exception e) {
             log.error("Error listing tendering quotes for user '{}' with role '{}' and externalId '{}': {}", userId, role, externalId, e.getMessage(), e);

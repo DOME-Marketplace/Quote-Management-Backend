@@ -160,6 +160,9 @@ public class QuoteServiceImpl implements QuoteService {
         log.debug("Calling external TMForum API: {}", url);
         log.debug("Find tendering quotes parameters - userId: '{}', role: '{}', externalId: '{}'", userId, role, externalId);
         
+        // Determine if externalId filtering should be applied
+        boolean filterByExternalId = externalId != null && !externalId.trim().isEmpty();
+        
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
@@ -180,7 +183,7 @@ public class QuoteServiceImpl implements QuoteService {
             
             log.info("Retrieved {} quotes from TMForum API for tendering filtering", quotes.length);
             
-            // Filter quotes based on user ID, role, category="tender", and externalId
+            // Filter quotes based on user ID, role, category="tender", and optionally externalId
             List<QuoteDTO> filteredQuotes = Arrays.stream(quotes)
                 .filter(quote -> {
                     // First, check if the quote matches the user and role criteria
@@ -218,8 +221,8 @@ public class QuoteServiceImpl implements QuoteService {
                         return false;
                     }
                     
-                    // Check if externalId matches (required for tendering)
-                    if (externalId == null || !externalId.equals(quote.getExternalId())) {
+                    // Check if externalId matches (only if externalId is provided)
+                    if (filterByExternalId && !externalId.equals(quote.getExternalId())) {
                         return false;
                     }
                     
@@ -227,8 +230,13 @@ public class QuoteServiceImpl implements QuoteService {
                 })
                 .collect(Collectors.toList());
             
-            log.info("Filtered {} quotes for tendering - user: '{}', role: '{}', externalId: '{}': {} quotes found", 
-                quotes.length, userId, role, externalId, filteredQuotes.size());
+            if (filterByExternalId) {
+                log.info("Filtered {} quotes for tendering - user: '{}', role: '{}', externalId: '{}': {} quotes found", 
+                    quotes.length, userId, role, externalId, filteredQuotes.size());
+            } else {
+                log.info("Filtered {} quotes for tendering - user: '{}', role: '{}' (all tender quotes): {} quotes found", 
+                    quotes.length, userId, role, filteredQuotes.size());
+            }
             
             return filteredQuotes;
             
@@ -639,19 +647,25 @@ public class QuoteServiceImpl implements QuoteService {
                 // Find customer ID from quoteItem.relatedParty where role is "Customer"
                 String customerId = null;
                 if (updatedQuote.getQuoteItem() != null && !updatedQuote.getQuoteItem().isEmpty()) {
-                    customerId = updatedQuote.getQuoteItem().get(0).getRelatedParty().stream()
-                        .filter(party -> "Customer".equals(party.getRole()))
+                    var firstQuoteItem = updatedQuote.getQuoteItem().get(0);
+                    if (firstQuoteItem.getRelatedParty() != null) {
+                        customerId = firstQuoteItem.getRelatedParty().stream()
+                            .filter(party -> "Customer".equals(party.getRole()))
+                            .findFirst()
+                            .map(party -> party.getId())
+                            .orElse(null);
+                    }
+                }
+
+                // Find provider ID from quote.relatedParty where role is "Seller"
+                String providerId = null;
+                if (updatedQuote.getRelatedParty() != null) {
+                    providerId = updatedQuote.getRelatedParty().stream()
+                        .filter(party -> "Seller".equals(party.getRole()))
                         .findFirst()
                         .map(party -> party.getId())
                         .orElse(null);
                 }
-
-                // Find provider ID from quote.relatedParty where role is "Seller"
-                String providerId = updatedQuote.getRelatedParty().stream()
-                    .filter(party -> "Seller".equals(party.getRole()))
-                    .findFirst()
-                    .map(party -> party.getId())
-                    .orElse(null);
 
                 if (customerId != null && providerId != null) {
                     String message = String.format(
@@ -674,7 +688,7 @@ public class QuoteServiceImpl implements QuoteService {
                     
                     log.info("Notification sent to customer {} about new document upload for quote {}", customerId, quoteId);
                 } else {
-                    log.warn("Could not send notification - customerId: {}, providerId: {}", customerId, providerId);
+                    log.warn("Could not send notification - customerId: {}, providerId: {} (relatedParty data may be missing from PATCH response)", customerId, providerId);
                 }
             }
             
@@ -1104,6 +1118,8 @@ public class QuoteServiceImpl implements QuoteService {
                 customerParty.put("@referredType", "individual");
                 quoteItemRelatedPartyArray.add(customerParty);
                 
+                // TEMPORARILY DISABLED FOR TESTING
+                /*
                 ObjectNode buyerOperator = objectMapper.createObjectNode();
                 buyerOperator.put("id", appConfig.getDidIdentifier());
                 buyerOperator.put("href", appConfig.getDidIdentifier());
@@ -1111,6 +1127,7 @@ public class QuoteServiceImpl implements QuoteService {
                 buyerOperator.put("name", appConfig.getDidIdentifier());
                 buyerOperator.put("@referredType", "organization");
                 quoteItemRelatedPartyArray.add(buyerOperator);
+                */
 
                 quoteItem.set("relatedParty", quoteItemRelatedPartyArray);
             }
@@ -1168,6 +1185,8 @@ public class QuoteServiceImpl implements QuoteService {
                 relatedPartyArray.add(providerParty);
             }
 
+            // TEMPORARILY DISABLED FOR TESTING
+            /*
             // Always add SellerOperator (marketplace operator) - this represents the marketplace DID
             ObjectNode sellerOperator = objectMapper.createObjectNode();
             sellerOperator.put("id", appConfig.getDidIdentifier());
@@ -1177,6 +1196,7 @@ public class QuoteServiceImpl implements QuoteService {
             sellerOperator.put("@referredType", "organization");
             relatedPartyArray.add(sellerOperator);
             log.info("Added SellerOperator to quote-level relatedParty array with DID: {}", appConfig.getDidIdentifier());
+            */
             
             quoteJson.set("relatedParty", relatedPartyArray);
             log.info("Set quote-level relatedParty array with {} entries", relatedPartyArray.size());
@@ -1204,6 +1224,8 @@ public class QuoteServiceImpl implements QuoteService {
                 customerParty.put("@referredType", "individual");
                 quoteItemRelatedPartyArray.add(customerParty);
                 
+                // TEMPORARILY DISABLED FOR TESTING
+                /*
                 ObjectNode buyerOperator = objectMapper.createObjectNode();
                 buyerOperator.put("id", appConfig.getDidIdentifier());
                 buyerOperator.put("href", appConfig.getDidIdentifier());
@@ -1211,6 +1233,7 @@ public class QuoteServiceImpl implements QuoteService {
                 buyerOperator.put("name", appConfig.getDidIdentifier());
                 buyerOperator.put("@referredType", "organization");
                 quoteItemRelatedPartyArray.add(buyerOperator);
+                */
 
                 quoteItem.set("relatedParty", quoteItemRelatedPartyArray);
             }
@@ -1318,8 +1341,11 @@ public class QuoteServiceImpl implements QuoteService {
             // Check if sender is the customer (in quoteItem.relatedParty)
             boolean senderIsCustomer = false;
             if (quote.getQuoteItem() != null && !quote.getQuoteItem().isEmpty()) {
-                senderIsCustomer = quote.getQuoteItem().get(0).getRelatedParty().stream()
-                    .anyMatch(party -> senderId.equals(party.getId()) && "Customer".equals(party.getRole()));
+                var firstQuoteItem = quote.getQuoteItem().get(0);
+                if (firstQuoteItem.getRelatedParty() != null) {
+                    senderIsCustomer = firstQuoteItem.getRelatedParty().stream()
+                        .anyMatch(party -> senderId.equals(party.getId()) && "Customer".equals(party.getRole()));
+                }
             }
             
             if (senderIsCustomer) {
@@ -1340,11 +1366,14 @@ public class QuoteServiceImpl implements QuoteService {
                 if (senderIsSeller) {
                     // If sender is seller, recipient is customer (from quoteItem.relatedParty)
                     if (quote.getQuoteItem() != null && !quote.getQuoteItem().isEmpty()) {
-                        recipientId = quote.getQuoteItem().get(0).getRelatedParty().stream()
-                            .filter(party -> "Customer".equals(party.getRole()))
-                            .findFirst()
-                            .map(party -> party.getId())
-                            .orElse(null);
+                        var firstQuoteItem = quote.getQuoteItem().get(0);
+                        if (firstQuoteItem.getRelatedParty() != null) {
+                            recipientId = firstQuoteItem.getRelatedParty().stream()
+                                .filter(party -> "Customer".equals(party.getRole()))
+                                .findFirst()
+                                .map(party -> party.getId())
+                                .orElse(null);
+                        }
                     }
                 }
             }
@@ -1387,11 +1416,14 @@ public class QuoteServiceImpl implements QuoteService {
             // Find customer ID from quoteItem.relatedParty where role is "Customer"
             String customerId = null;
             if (quote.getQuoteItem() != null && !quote.getQuoteItem().isEmpty()) {
-                customerId = quote.getQuoteItem().get(0).getRelatedParty().stream()
-                    .filter(party -> "Customer".equals(party.getRole()))
-                    .findFirst()
-                    .map(party -> party.getId())
-                    .orElse(null);
+                var firstQuoteItem = quote.getQuoteItem().get(0);
+                if (firstQuoteItem.getRelatedParty() != null) {
+                    customerId = firstQuoteItem.getRelatedParty().stream()
+                        .filter(party -> "Customer".equals(party.getRole()))
+                        .findFirst()
+                        .map(party -> party.getId())
+                        .orElse(null);
+                }
             }
 
             // Find seller ID from quote.relatedParty where role is "Seller"
