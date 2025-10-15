@@ -716,9 +716,10 @@ public class QuoteServiceImpl implements QuoteService {
             }
             
             // Validate dateType
-            if (!"requested".equalsIgnoreCase(dateType) && !"expected".equalsIgnoreCase(dateType)) {
-                log.error("Invalid dateType: {}. Must be either 'requested' or 'expected'", dateType);
-                throw new IllegalArgumentException("Invalid dateType. Must be either 'requested' or 'expected'");
+            if (!"requested".equalsIgnoreCase(dateType) && !"expected".equalsIgnoreCase(dateType) && 
+                !"effective".equalsIgnoreCase(dateType) && !"expectedFulfillment".equalsIgnoreCase(dateType)) {
+                log.error("Invalid dateType: {}. Must be one of: 'requested', 'expected', 'effective', 'expectedFulfillment'", dateType);
+                throw new IllegalArgumentException("Invalid dateType. Must be one of: 'requested', 'expected', 'effective', 'expectedFulfillment'");
             }
             
             // Parse the user-friendly DD-MM-YYYY format and convert to ISO 8601
@@ -1071,8 +1072,14 @@ public class QuoteServiceImpl implements QuoteService {
             ObjectNode updateJson = objectMapper.createObjectNode();
             if ("requested".equalsIgnoreCase(dateType)) {
                 updateJson.put("requestedQuoteCompletionDate", date);
-            } else {
+            } else if ("expected".equalsIgnoreCase(dateType)) {
                 updateJson.put("expectedQuoteCompletionDate", date);
+            } else if ("effective".equalsIgnoreCase(dateType)) {
+                updateJson.put("effectiveQuoteCompletionDate", date);
+            } else if ("expectedFulfillment".equalsIgnoreCase(dateType)) {
+                updateJson.put("expectedFulfillmentStartDate", date);
+            } else {
+                throw new IllegalArgumentException("Invalid dateType: " + dateType);
             }
             return objectMapper.writeValueAsString(updateJson);
         } catch (Exception e) {
