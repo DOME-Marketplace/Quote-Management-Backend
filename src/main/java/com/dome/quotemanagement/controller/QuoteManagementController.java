@@ -423,8 +423,8 @@ public class QuoteManagementController {
 
     @PatchMapping("/updateQuoteDate/{id}")
     @Operation(
-        summary = "Update quote completion date", 
-        description = "Updates either the requested or expected completion date for a quote. Date format: DD-MM-YYYY. Backend calls: /quote/{id}"
+        summary = "Update quote date", 
+        description = "Updates various date fields for a quote. Supported dateType values: 'requested' (requestedQuoteCompletionDate), 'expected' (expectedQuoteCompletionDate), 'effective' (effectiveQuoteCompletionDate), 'expectedFulfillment' (expectedFulfillmentStartDate). Date format: DD-MM-YYYY. Backend calls: /quote/{id}"
     )
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "Quote date updated successfully",
@@ -438,7 +438,7 @@ public class QuoteManagementController {
             @PathVariable String id,
             @Parameter(description = "Completion date in DD-MM-YYYY format (e.g., 31-12-2024)", required = true)
             @RequestParam String date,
-            @Parameter(description = "Type of date to update: 'requested' or 'expected'", required = true)
+            @Parameter(description = "Type of date to update: 'requested', 'expected', 'effective', or 'expectedFulfillment'", required = true)
             @RequestParam String dateType)
     {
         log.info("Received request to update quote date - quoteId: '{}', date: '{}', dateType: '{}'", id, date, dateType);
