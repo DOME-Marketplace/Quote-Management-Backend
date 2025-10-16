@@ -57,7 +57,7 @@ public class QuoteExpirationScheduler {
 
     @Scheduled(cron = "0 0 0 * * ?") // Run at midnight every day
     public void checkTenderQuotesStatus() {
-        log.info("Starting scheduled check for tender quotes status updates");
+        log.info("Starting scheduled check for coordinator tender quotes status updates");
         try {
             // Get all quotes
             String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteListEndpoint();
@@ -71,7 +71,7 @@ public class QuoteExpirationScheduler {
                 }
             }
         } catch (Exception e) {
-            log.error("Error checking tender quotes status: {}", e.getMessage(), e);
+            log.error("Error checking coordinatortender quotes status: {}", e.getMessage(), e);
         }
     }
 
@@ -87,7 +87,7 @@ public class QuoteExpirationScheduler {
     }
 
     private void checkAndUpdateTenderQuoteStatus(QuoteDTO quote) {
-        log.debug("Checking tender quote status for quote: {}", quote.getId());
+        log.debug("Checking coordinatortender quote status: {}", quote.getId());
         
         try {
             LocalDateTime now = LocalDateTime.now();
@@ -98,22 +98,22 @@ public class QuoteExpirationScheduler {
                 quote.getExpectedFulfillmentStartDate() != null &&
                 now.isAfter(quote.getExpectedFulfillmentStartDate())) {
                 
-                log.info("Updating tender quote {} from inProgress to approved - expectedFulfillmentStartDate passed", quote.getId());
+                log.info("Updating coordinatortender quote {} from inProgress to approved - expectedFulfillmentStartDate passed", quote.getId());
                 updateTenderQuoteStatus(quote, "approved", 
-                    "Quote automatically approved - expected fulfillment start date has been reached.");
+                    "Tender automatically approved - expected fulfillment start date has been reached.");
             }
             // Check if we need to update to "accepted" (when effectiveQuoteCompletionDate is passed)
             else if ("approved".equals(currentState) && 
                      quote.getEffectiveQuoteCompletionDate() != null &&
                      now.isAfter(quote.getEffectiveQuoteCompletionDate())) {
                 
-                log.info("Updating tender quote {} from approved to accepted - effectiveQuoteCompletionDate passed", quote.getId());
+                log.info("Updating coordinator tender quote {} from approved to accepted - effectiveQuoteCompletionDate passed", quote.getId());
                 updateTenderQuoteStatus(quote, "accepted", 
-                    "Quote automatically accepted - effective quote completion date has been reached.");
+                    "Tender automatically accepted - effective completion date has been reached.");
             }
             
         } catch (Exception e) {
-            log.error("Error checking tender quote status for quote {}: {}", quote.getId(), e.getMessage(), e);
+            log.error("Error checking coordinatortender quote status for quote {}: {}", quote.getId(), e.getMessage(), e);
         }
     }
 
@@ -139,9 +139,9 @@ public class QuoteExpirationScheduler {
             // Send notifications
             sendTenderStatusChangeNotifications(quote, newStatus);
 
-            log.info("Successfully updated tender quote {} to status: {}", quote.getId(), newStatus);
+            log.info("Successfully updated coordinatortender quote {} to status: {}", quote.getId(), newStatus);
         } catch (Exception e) {
-            log.error("Error updating tender quote {} status to {}: {}", quote.getId(), newStatus, e.getMessage(), e);
+            log.error("Error updating coordinator tender quote {} status to {}: {}", quote.getId(), newStatus, e.getMessage(), e);
         }
     }
 
@@ -173,7 +173,7 @@ public class QuoteExpirationScheduler {
                 notificationService.sendNotification(notification);
             }
         } catch (Exception e) {
-            log.error("Error sending tender status change notifications for quote {}: {}", quote.getId(), e.getMessage(), e);
+            log.error("Error sending tender status change notifications {}: {}", quote.getId(), e.getMessage(), e);
         }
     }
 
@@ -181,19 +181,19 @@ public class QuoteExpirationScheduler {
         switch (newStatus.toLowerCase()) {
             case "approved":
                 return String.format(
-                    "Tender Quote (ID: %s) has been automatically approved. The expected fulfillment start date (%s) has been reached.",
+                    "CoordinatorTender Quote (ID: %s) has been automatically approved. The expected fulfillment start date (%s) has been reached.",
                     quote.getId(),
                     quote.getExpectedFulfillmentStartDate()
                 );
             case "accepted":
                 return String.format(
-                    "Tender Quote (ID: %s) has been automatically accepted. The effective quote completion date (%s) has been reached.",
+                    "CoordinatorTender Quote (ID: %s) has been automatically accepted. The effective completion date (%s) has been reached.",
                     quote.getId(),
                     quote.getEffectiveQuoteCompletionDate()
                 );
             default:
                 return String.format(
-                    "Tender Quote (ID: %s) status has been updated to: %s",
+                    "Coordinator Tender Quote (ID: %s) status has been updated to: %s",
                     quote.getId(),
                     newStatus
                 );
