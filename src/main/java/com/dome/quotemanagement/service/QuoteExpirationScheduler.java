@@ -55,6 +55,26 @@ public class QuoteExpirationScheduler {
         }
     }
 
+    @Scheduled(cron = "0 0 0 * * ?") // Run at midnight every day
+    public void checkTenderQuotesStatus() {
+        log.info("Starting scheduled check for tender quotes status updates");
+        try {
+            // Get all quotes
+            String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteListEndpoint();
+            QuoteDTO[] quotes = restTemplate.getForObject(url, QuoteDTO[].class);
+            List<QuoteDTO> allQuotes = Arrays.asList(quotes != null ? quotes : new QuoteDTO[0]);
+
+            // Check each tender quote
+            for (QuoteDTO quote : allQuotes) {
+                if ("tender".equals(quote.getCategory())) {
+                    checkAndUpdateTenderQuoteStatus(quote);
+                }
+            }
+        } catch (Exception e) {
+            log.error("Error checking tender quotes status: {}", e.getMessage(), e);
+        }
+    }
+
     private boolean isQuoteExpired(QuoteDTO quote) {
         if (quote.getRequestedQuoteCompletionDate() == null) {
             return false;
@@ -64,6 +84,120 @@ public class QuoteExpirationScheduler {
         LocalDateTime now = LocalDateTime.now();
 
         return now.isAfter(completionDate) && "inProgress".equals(quote.getState());
+    }
+
+    private void checkAndUpdateTenderQuoteStatus(QuoteDTO quote) {
+        log.debug("Checking tender quote status for quote: {}", quote.getId());
+        
+        try {
+            LocalDateTime now = LocalDateTime.now();
+            String currentState = quote.getState();
+            
+            // Check if we need to update to "approved" (when expectedFulfillmentStartDate is passed)
+            if ("inProgress".equals(currentState) && 
+                quote.getExpectedFulfillmentStartDate() != null &&
+                now.isAfter(quote.getExpectedFulfillmentStartDate())) {
+                
+                log.info("Updating tender quote {} from inProgress to approved - expectedFulfillmentStartDate passed", quote.getId());
+                updateTenderQuoteStatus(quote, "approved", 
+                    "Quote automatically approved - expected fulfillment start date has been reached.");
+            }
+            // Check if we need to update to "accepted" (when effectiveQuoteCompletionDate is passed)
+            else if ("approved".equals(currentState) && 
+                     quote.getEffectiveQuoteCompletionDate() != null &&
+                     now.isAfter(quote.getEffectiveQuoteCompletionDate())) {
+                
+                log.info("Updating tender quote {} from approved to accepted - effectiveQuoteCompletionDate passed", quote.getId());
+                updateTenderQuoteStatus(quote, "accepted", 
+                    "Quote automatically accepted - effective quote completion date has been reached.");
+            }
+            
+        } catch (Exception e) {
+            log.error("Error checking tender quote status for quote {}: {}", quote.getId(), e.getMessage(), e);
+        }
+    }
+
+    private void updateTenderQuoteStatus(QuoteDTO quote, String newStatus, String noteMessage) {
+        try {
+            String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteEndpoint() + "/" + quote.getId();
+            
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("Accept", "application/json");
+
+            // Update quote status
+            String jsonPayload = buildStatusUpdateJson(newStatus, quote);
+            HttpEntity<String> request = new HttpEntity<>(jsonPayload, headers);
+
+            restTemplate.exchange(url, org.springframework.http.HttpMethod.PATCH, request, QuoteDTO.class);
+
+            // Add note about status change
+            String notePayload = buildNoteUpdateJson(noteMessage, "SYSTEM", quote);
+            HttpEntity<String> noteRequest = new HttpEntity<>(notePayload, headers);
+            restTemplate.exchange(url, org.springframework.http.HttpMethod.PATCH, noteRequest, QuoteDTO.class);
+
+            // Send notifications
+            sendTenderStatusChangeNotifications(quote, newStatus);
+
+            log.info("Successfully updated tender quote {} to status: {}", quote.getId(), newStatus);
+        } catch (Exception e) {
+            log.error("Error updating tender quote {} status to {}: {}", quote.getId(), newStatus, e.getMessage(), e);
+        }
+    }
+
+    private void sendTenderStatusChangeNotifications(QuoteDTO quote, String newStatus) {
+        try {
+            // Find customer and provider IDs
+            String customerId = quote.getRelatedParty().stream()
+                .filter(party -> "customer".equals(party.getRole()))
+                .findFirst()
+                .map(party -> party.getId())
+                .orElse(null);
+
+            String providerId = quote.getRelatedParty().stream()
+                .filter(party -> "seller".equals(party.getRole()))
+                .findFirst()
+                .map(party -> party.getId())
+                .orElse(null);
+
+            if (customerId != null && providerId != null) {
+                String message = getTenderStatusChangeMessage(quote, newStatus);
+
+                NotificationRequestDTO notification = NotificationRequestDTO.builder()
+                    .sender(providerId)
+                    .recipient(customerId)
+                    .subject("Tender Quote Status Update")
+                    .message(message)
+                    .build();
+
+                notificationService.sendNotification(notification);
+            }
+        } catch (Exception e) {
+            log.error("Error sending tender status change notifications for quote {}: {}", quote.getId(), e.getMessage(), e);
+        }
+    }
+
+    private String getTenderStatusChangeMessage(QuoteDTO quote, String newStatus) {
+        switch (newStatus.toLowerCase()) {
+            case "approved":
+                return String.format(
+                    "Tender Quote (ID: %s) has been automatically approved. The expected fulfillment start date (%s) has been reached.",
+                    quote.getId(),
+                    quote.getExpectedFulfillmentStartDate()
+                );
+            case "accepted":
+                return String.format(
+                    "Tender Quote (ID: %s) has been automatically accepted. The effective quote completion date (%s) has been reached.",
+                    quote.getId(),
+                    quote.getEffectiveQuoteCompletionDate()
+                );
+            default:
+                return String.format(
+                    "Tender Quote (ID: %s) status has been updated to: %s",
+                    quote.getId(),
+                    newStatus
+                );
+        }
     }
 
     private void handleExpiredQuote(QuoteDTO quote) {
