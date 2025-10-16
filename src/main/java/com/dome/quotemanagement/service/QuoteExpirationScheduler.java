@@ -57,7 +57,7 @@ public class QuoteExpirationScheduler {
 
     @Scheduled(cron = "0 0 0 * * ?") // Run at midnight every day
     public void checkTenderQuotesStatus() {
-        log.info("Starting scheduled check for coordinator tender quotes status updates");
+        log.info("Starting scheduled check for coordinator tender status updates");
         try {
             // Get all quotes
             String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteListEndpoint();
@@ -66,12 +66,12 @@ public class QuoteExpirationScheduler {
 
             // Check each tender quote
             for (QuoteDTO quote : allQuotes) {
-                if ("tender".equals(quote.getCategory())) {
+                if ("tender".equals(quote.getCategory()) || "coordinator".equals(quote.getCategory())) {
                     checkAndUpdateTenderQuoteStatus(quote);
                 }
             }
         } catch (Exception e) {
-            log.error("Error checking coordinatortender quotes status: {}", e.getMessage(), e);
+            log.error("Error checking coordinator tender status: {}", e.getMessage(), e);
         }
     }
 
@@ -87,7 +87,7 @@ public class QuoteExpirationScheduler {
     }
 
     private void checkAndUpdateTenderQuoteStatus(QuoteDTO quote) {
-        log.debug("Checking coordinatortender quote status: {}", quote.getId());
+        log.debug("Checking coordinator tender status: {}", quote.getId());
         
         try {
             LocalDateTime now = LocalDateTime.now();
@@ -98,7 +98,7 @@ public class QuoteExpirationScheduler {
                 quote.getExpectedFulfillmentStartDate() != null &&
                 now.isAfter(quote.getExpectedFulfillmentStartDate())) {
                 
-                log.info("Updating coordinatortender quote {} from inProgress to approved - expectedFulfillmentStartDate passed", quote.getId());
+                log.info("Updating coordinator tender {} from inProgress to approved - expectedFulfillmentStartDate passed", quote.getId());
                 updateTenderQuoteStatus(quote, "approved", 
                     "Tender automatically approved - expected fulfillment start date has been reached.");
             }
@@ -107,13 +107,13 @@ public class QuoteExpirationScheduler {
                      quote.getEffectiveQuoteCompletionDate() != null &&
                      now.isAfter(quote.getEffectiveQuoteCompletionDate())) {
                 
-                log.info("Updating coordinator tender quote {} from approved to accepted - effectiveQuoteCompletionDate passed", quote.getId());
+                log.info("Updating coordinator tender {} from approved to accepted - effectiveQuoteCompletionDate passed", quote.getId());
                 updateTenderQuoteStatus(quote, "accepted", 
                     "Tender automatically accepted - effective completion date has been reached.");
             }
             
         } catch (Exception e) {
-            log.error("Error checking coordinatortender quote status for quote {}: {}", quote.getId(), e.getMessage(), e);
+            log.error("Error checking coordinator tender status for quote {}: {}", quote.getId(), e.getMessage(), e);
         }
     }
 
@@ -139,9 +139,9 @@ public class QuoteExpirationScheduler {
             // Send notifications
             sendTenderStatusChangeNotifications(quote, newStatus);
 
-            log.info("Successfully updated coordinatortender quote {} to status: {}", quote.getId(), newStatus);
+            log.info("Successfully updated coordinator tender {} to status: {}", quote.getId(), newStatus);
         } catch (Exception e) {
-            log.error("Error updating coordinator tender quote {} status to {}: {}", quote.getId(), newStatus, e.getMessage(), e);
+            log.error("Error updating coordinator tender {} status to {}: {}", quote.getId(), newStatus, e.getMessage(), e);
         }
     }
 
@@ -166,7 +166,7 @@ public class QuoteExpirationScheduler {
                 NotificationRequestDTO notification = NotificationRequestDTO.builder()
                     .sender(providerId)
                     .recipient(customerId)
-                    .subject("Tender Quote Status Update")
+                    .subject("Tender Status Update")
                     .message(message)
                     .build();
 
@@ -181,19 +181,19 @@ public class QuoteExpirationScheduler {
         switch (newStatus.toLowerCase()) {
             case "approved":
                 return String.format(
-                    "CoordinatorTender Quote (ID: %s) has been automatically approved. The expected fulfillment start date (%s) has been reached.",
+                    "Coordinator Tender (ID: %s) has been automatically approved. The expected fulfillment start date (%s) has been reached.",
                     quote.getId(),
                     quote.getExpectedFulfillmentStartDate()
                 );
             case "accepted":
                 return String.format(
-                    "CoordinatorTender Quote (ID: %s) has been automatically accepted. The effective completion date (%s) has been reached.",
+                    "Coordinator Tender (ID: %s) has been automatically accepted. The effective completion date (%s) has been reached.",
                     quote.getId(),
                     quote.getEffectiveQuoteCompletionDate()
                 );
             default:
                 return String.format(
-                    "Coordinator Tender Quote (ID: %s) status has been updated to: %s",
+                    "Coordinator Tender (ID: %s) status has been updated to: %s",
                     quote.getId(),
                     newStatus
                 );
@@ -274,28 +274,10 @@ public class QuoteExpirationScheduler {
     private String buildStatusUpdateJson(String statusValue, QuoteDTO currentQuote) {
         try {
             ObjectNode updateJson = objectMapper.createObjectNode();
-            ArrayNode quoteItemArray = objectMapper.createArrayNode();
             
-            if (currentQuote.getQuoteItem() != null && !currentQuote.getQuoteItem().isEmpty()) {
-                for (QuoteItemDTO quoteItem : currentQuote.getQuoteItem()) {
-                    ObjectNode quoteItemJson = objectMapper.createObjectNode();
-                    quoteItemJson.put("state", statusValue);
-                    
-                    if (quoteItem.getId() != null) {
-                        quoteItemJson.put("id", quoteItem.getId());
-                    }
-                    if (quoteItem.getAction() != null) {
-                        quoteItemJson.put("action", quoteItem.getAction());
-                    }
-                    if (quoteItem.getQuantity() != null) {
-                        quoteItemJson.put("quantity", quoteItem.getQuantity());
-                    }
-                    
-                    quoteItemArray.add(quoteItemJson);
-                }
-            }
+            // Update only the main quote state, not the quoteItem states
+            updateJson.put("state", statusValue);
             
-            updateJson.set("quoteItem", quoteItemArray);
             return objectMapper.writeValueAsString(updateJson);
         } catch (Exception e) {
             log.error("Error building status update JSON: {}", e.getMessage());
@@ -332,7 +314,7 @@ public class QuoteExpirationScheduler {
             ObjectNode newNoteObject = objectMapper.createObjectNode();
             newNoteObject.put("@type", "Note");
             newNoteObject.put("text", messageContent);
-            newNoteObject.put("date", LocalDateTime.now().toString());
+            newNoteObject.put("date", java.time.Instant.now().toString());
             newNoteObject.put("author", userId);
             
             noteArray.add(newNoteObject);
