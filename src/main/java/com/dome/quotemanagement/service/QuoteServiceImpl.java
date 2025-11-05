@@ -1125,8 +1125,6 @@ public class QuoteServiceImpl implements QuoteService {
                 customerParty.put("@referredType", "individual");
                 quoteItemRelatedPartyArray.add(customerParty);
                 
-                // TEMPORARILY DISABLED FOR TESTING
-                /*
                 ObjectNode buyerOperator = objectMapper.createObjectNode();
                 buyerOperator.put("id", appConfig.getDidIdentifier());
                 buyerOperator.put("href", appConfig.getDidIdentifier());
@@ -1134,7 +1132,6 @@ public class QuoteServiceImpl implements QuoteService {
                 buyerOperator.put("name", appConfig.getDidIdentifier());
                 buyerOperator.put("@referredType", "organization");
                 quoteItemRelatedPartyArray.add(buyerOperator);
-                */
 
                 quoteItem.set("relatedParty", quoteItemRelatedPartyArray);
             }
@@ -1192,8 +1189,6 @@ public class QuoteServiceImpl implements QuoteService {
                 relatedPartyArray.add(providerParty);
             }
 
-            // TEMPORARILY DISABLED FOR TESTING
-            /*
             // Always add SellerOperator (marketplace operator) - this represents the marketplace DID
             ObjectNode sellerOperator = objectMapper.createObjectNode();
             sellerOperator.put("id", appConfig.getDidIdentifier());
@@ -1203,7 +1198,6 @@ public class QuoteServiceImpl implements QuoteService {
             sellerOperator.put("@referredType", "organization");
             relatedPartyArray.add(sellerOperator);
             log.info("Added SellerOperator to quote-level relatedParty array with DID: {}", appConfig.getDidIdentifier());
-            */
             
             quoteJson.set("relatedParty", relatedPartyArray);
             log.info("Set quote-level relatedParty array with {} entries", relatedPartyArray.size());
@@ -1231,8 +1225,6 @@ public class QuoteServiceImpl implements QuoteService {
                 customerParty.put("@referredType", "individual");
                 quoteItemRelatedPartyArray.add(customerParty);
                 
-                // TEMPORARILY DISABLED FOR TESTING
-                /*
                 ObjectNode buyerOperator = objectMapper.createObjectNode();
                 buyerOperator.put("id", appConfig.getDidIdentifier());
                 buyerOperator.put("href", appConfig.getDidIdentifier());
@@ -1240,7 +1232,7 @@ public class QuoteServiceImpl implements QuoteService {
                 buyerOperator.put("name", appConfig.getDidIdentifier());
                 buyerOperator.put("@referredType", "organization");
                 quoteItemRelatedPartyArray.add(buyerOperator);
-                */
+                
 
                 quoteItem.set("relatedParty", quoteItemRelatedPartyArray);
             }
