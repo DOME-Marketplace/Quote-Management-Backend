@@ -9,7 +9,7 @@ services:
     container_name: quote-management-service
     restart: unless-stopped
     environment:
-      - SPRING_PROFILES_ACTIVE=local
+      - SPRING_PROFILES_ACTIVE=docker
       - TMFORUM_API_BASE_URL=${TMFORUM_API_BASE_URL:-https://an-dhub-sbx.dome-project.eu/tmf-api}
       - JAVA_OPTS=-Xmx512m -Xms256m
     ports:
