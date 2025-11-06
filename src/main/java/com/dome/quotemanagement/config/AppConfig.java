@@ -26,18 +26,18 @@ import java.util.Collections;
 @Configuration
 public class AppConfig {
     
-    // TMForum API Endpoints - now configurable through properties
     @Value("${tmforum.api.quote-endpoint:/quote/v4/quote}")
     private String tmforumQuoteEndpoint;
     
     @Value("${tmforum.api.quote-list-endpoint:/quote/v4/quote?limit=1000}")
     private String tmforumQuoteListEndpoint;
+
+    @Value("${tmforum.api.quote-list-endpoint:/productCatalogManagement/v4/productOffering}")
+    private String tmforumProductCatalogManagementEndpoint;
     
-    // Notification API Endpoints - now configurable through properties
     @Value("${notification.api.endpoint:/charging/api/orderManagement/notify}")
     private String notificationEndpoint;
     
-    // DID Configuration - configurable through properties, the marketplace identifier
     @Value("${did.identifier:did:elsi:VATES-11111111P}")
     private String didIdentifier;
     
@@ -56,6 +56,10 @@ public class AppConfig {
     
     public String getDidIdentifier() {
         return didIdentifier;
+    }
+    
+    public String getTmforumProductCatalogManagementEndpoint() {
+        return tmforumProductCatalogManagementEndpoint;
     }
     
     @Autowired

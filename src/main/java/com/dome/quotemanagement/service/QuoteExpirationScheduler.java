@@ -5,6 +5,7 @@ import com.dome.quotemanagement.dto.tmforum.QuoteDTO;
 import com.dome.quotemanagement.dto.tmforum.QuoteItemDTO;
 import com.dome.quotemanagement.dto.tmforum.NoteDTO;
 import com.dome.quotemanagement.dto.NotificationRequestDTO;
+import com.dome.quotemanagement.enums.QuoteRole;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -149,13 +150,13 @@ public class QuoteExpirationScheduler {
         try {
             // Find customer and provider IDs
             String customerId = quote.getRelatedParty().stream()
-                .filter(party -> "customer".equals(party.getRole()))
+                .filter(party -> QuoteRole.isCustomer(party.getRole()))
                 .findFirst()
                 .map(party -> party.getId())
                 .orElse(null);
 
             String providerId = quote.getRelatedParty().stream()
-                .filter(party -> "seller".equals(party.getRole()))
+                .filter(party -> QuoteRole.isSeller(party.getRole()))
                 .findFirst()
                 .map(party -> party.getId())
                 .orElse(null);
@@ -239,13 +240,13 @@ public class QuoteExpirationScheduler {
         try {
             // Find customer and provider IDs
             String customerId = quote.getRelatedParty().stream()
-                .filter(party -> "customer".equals(party.getRole()))
+                .filter(party -> QuoteRole.isCustomer(party.getRole()))
                 .findFirst()
                 .map(party -> party.getId())
                 .orElse(null);
 
             String providerId = quote.getRelatedParty().stream()
-                .filter(party -> "seller".equals(party.getRole()))
+                .filter(party -> QuoteRole.isSeller(party.getRole()))
                 .findFirst()
                 .map(party -> party.getId())
                 .orElse(null);
