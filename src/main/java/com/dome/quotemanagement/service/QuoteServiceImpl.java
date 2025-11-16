@@ -118,7 +118,49 @@ public class QuoteServiceImpl implements QuoteService {
             }
 
             log.info("Retrieved {} quotes from TMForum API using server-side filters (category=tailored, relatedParty.id)", quotes.length);
-            return Arrays.asList(quotes);
+            
+            // Apply client-side filtering to ensure server-side filters were respected
+            List<QuoteDTO> filteredQuotes = Arrays.stream(quotes)
+                .filter(quote -> {
+                    boolean userRoleMatch = false;
+                    if (QuoteRole.equalsIgnoreCase(role, QuoteRole.SELLER)) {
+                        if (quote.getRelatedParty() != null) {
+                            userRoleMatch = quote.getRelatedParty().stream()
+                                .anyMatch(party -> userId.equals(party.getId()) 
+                                    && QuoteRole.equalsIgnoreCase(party.getRole(), QuoteRole.SELLER));
+                        }
+                    } else if (QuoteRole.equalsIgnoreCase(role, QuoteRole.CUSTOMER)) {
+                        if (quote.getRelatedParty() != null) {
+                            userRoleMatch = quote.getRelatedParty().stream()
+                                .anyMatch(party -> userId.equals(party.getId()) 
+                                    && QuoteRole.equalsIgnoreCase(party.getRole(), QuoteRole.CUSTOMER));
+                        }
+                    } else {
+                        log.warn("Invalid role provided: {}", role);
+                        return false;
+                    }
+
+                    if (!userRoleMatch) {
+                        return false;
+                    }
+
+                    if (!"tailored".equalsIgnoreCase(quote.getCategory())) {
+                        return false;
+                    }
+
+                    return true;
+                })
+                .collect(Collectors.toList());
+            
+            if (filteredQuotes.size() < quotes.length) {
+                log.warn("Server-side filtering was incomplete: returned {} quotes but only {} match the criteria after client-side validation", 
+                    quotes.length, filteredQuotes.size());
+            }
+            
+            log.info("Client-side validated {} tailored quotes for user '{}', role '{}'", 
+                filteredQuotes.size(), userId, role);
+            
+            return filteredQuotes;
 
         } catch (Exception e) {
             // Fallback to client-side filtering if provider does not support server-side filters
@@ -148,12 +190,14 @@ public class QuoteServiceImpl implements QuoteService {
                         if (QuoteRole.equalsIgnoreCase(role, QuoteRole.SELLER)) {
                             if (quote.getRelatedParty() != null) {
                                 userRoleMatch = quote.getRelatedParty().stream()
-                                    .anyMatch(party -> userId.equals(party.getId()));
+                                    .anyMatch(party -> userId.equals(party.getId()) 
+                                        && QuoteRole.equalsIgnoreCase(party.getRole(), QuoteRole.SELLER));
                             }
                         } else if (QuoteRole.equalsIgnoreCase(role, QuoteRole.CUSTOMER)) {
                             if (quote.getRelatedParty() != null) {
                                 userRoleMatch = quote.getRelatedParty().stream()
-                                    .anyMatch(party -> userId.equals(party.getId()));
+                                    .anyMatch(party -> userId.equals(party.getId()) 
+                                        && QuoteRole.equalsIgnoreCase(party.getRole(), QuoteRole.CUSTOMER));
                             }
                         } else {
                             log.warn("Invalid role provided: {}", role);
@@ -224,7 +268,58 @@ public class QuoteServiceImpl implements QuoteService {
 
             log.info("Retrieved {} quotes from TMForum API using server-side filters (category=tender, relatedParty.id{} )",
                 quotes.length, filterByExternalId ? ", externalId" : "");
-            return Arrays.asList(quotes);
+            
+            // Apply client-side filtering to ensure server-side filters were respected
+            List<QuoteDTO> filteredQuotes = Arrays.stream(quotes)
+                .filter(quote -> {
+                    boolean userRoleMatch = false;
+                    if (QuoteRole.equalsIgnoreCase(role, QuoteRole.SELLER)) {
+                        if (quote.getRelatedParty() != null) {
+                            userRoleMatch = quote.getRelatedParty().stream()
+                                .anyMatch(party -> userId.equals(party.getId()) 
+                                    && QuoteRole.equalsIgnoreCase(party.getRole(), QuoteRole.SELLER));
+                        }
+                    } else if (QuoteRole.equalsIgnoreCase(role, QuoteRole.CUSTOMER)) {
+                        if (quote.getRelatedParty() != null) {
+                            userRoleMatch = quote.getRelatedParty().stream()
+                                .anyMatch(party -> userId.equals(party.getId()) 
+                                    && QuoteRole.equalsIgnoreCase(party.getRole(), QuoteRole.CUSTOMER));
+                        }
+                    } else {
+                        log.warn("Invalid role provided: {}", role);
+                        return false;
+                    }
+
+                    if (!userRoleMatch) {
+                        return false;
+                    }
+
+                    if (!"tender".equalsIgnoreCase(quote.getCategory())) {
+                        return false;
+                    }
+
+                    if (filterByExternalId && !externalId.equals(quote.getExternalId())) {
+                        return false;
+                    }
+
+                    return true;
+                })
+                .collect(Collectors.toList());
+            
+            if (filteredQuotes.size() < quotes.length) {
+                log.warn("Server-side filtering was incomplete: returned {} quotes but only {} match the criteria after client-side validation", 
+                    quotes.length, filteredQuotes.size());
+            }
+            
+            if (filterByExternalId) {
+                log.info("Client-side validated {} tender quotes for user '{}', role '{}', externalId '{}'", 
+                    filteredQuotes.size(), userId, role, externalId);
+            } else {
+                log.info("Client-side validated {} tender quotes for user '{}', role '{}'", 
+                    filteredQuotes.size(), userId, role);
+            }
+            
+            return filteredQuotes;
 
         } catch (Exception e) {
             log.warn("Server-side filtering failed or unsupported for tendering ({}). Falling back to client-side filtering.", e.getMessage());
@@ -253,12 +348,14 @@ public class QuoteServiceImpl implements QuoteService {
                         if (QuoteRole.equalsIgnoreCase(role, QuoteRole.SELLER)) {
                             if (quote.getRelatedParty() != null) {
                                 userRoleMatch = quote.getRelatedParty().stream()
-                                    .anyMatch(party -> userId.equals(party.getId()));
+                                    .anyMatch(party -> userId.equals(party.getId()) 
+                                        && QuoteRole.equalsIgnoreCase(party.getRole(), QuoteRole.SELLER));
                             }
                         } else if (QuoteRole.equalsIgnoreCase(role, QuoteRole.CUSTOMER)) {
                             if (quote.getRelatedParty() != null) {
                                 userRoleMatch = quote.getRelatedParty().stream()
-                                    .anyMatch(party -> userId.equals(party.getId()));
+                                    .anyMatch(party -> userId.equals(party.getId()) 
+                                        && QuoteRole.equalsIgnoreCase(party.getRole(), QuoteRole.CUSTOMER));
                             }
                         } else {
                             log.warn("Invalid role provided: {}", role);
