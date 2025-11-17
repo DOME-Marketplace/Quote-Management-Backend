@@ -54,27 +54,252 @@ public class QuoteServiceImpl implements QuoteService {
     @Value("${attachment.verification.delay-ms:1000}")
     private int attachmentVerificationDelayMs;
     
+    @Value("${quote.pagination.page-size:10}")
+    private int paginationPageSize;
+    
     @Override
     public List<QuoteDTO> findAllQuotes() {
-        String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteListEndpoint();
-        log.debug("Calling external TMForum API to get all quotes: {}", url);
+        // Use pagination to avoid ContentLengthExceededException when quotes have heavy attachments
+        // Fetch quotes in smaller batches to stay under the 10MB limit
+        int pageSize = paginationPageSize; // Small page size to handle heavy quotes with attachments
+        int offset = 0;
+        List<QuoteDTO> allQuotes = new java.util.ArrayList<>();
+        
+        String baseUrl = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteEndpoint();
+        log.debug("Calling external TMForum API to get all quotes with pagination: {}", baseUrl);
+        
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
-            HttpEntity<?> request = new HttpEntity<>(headers);
             
-            var response = restTemplate.exchange(
-                url,
-                HttpMethod.GET,
-                request,
-                QuoteDTO[].class
-            );
+            boolean hasMore = true;
+            int pageNumber = 0;
+            int consecutiveFailures = 0;
+            int skippedQuotes = 0;
+            final int MAX_CONSECUTIVE_FAILURES = 3; // Stop after 3 consecutive failures
             
-            QuoteDTO[] quotes = response.getBody();
-            return Arrays.asList(quotes != null ? quotes : new QuoteDTO[0]);
+            while (hasMore) {
+                try {
+                    // Build URL with pagination parameters
+                    String url = UriComponentsBuilder.fromHttpUrl(baseUrl)
+                        .queryParam("limit", pageSize)
+                        .queryParam("offset", offset)
+                        .build(true)
+                        .toUriString();
+                    
+                    log.debug("Fetching quotes page {} (offset={}, limit={}): {}", pageNumber + 1, offset, pageSize, url);
+                    
+                    HttpEntity<?> request = new HttpEntity<>(headers);
+                    
+                    var response = restTemplate.exchange(
+                        url,
+                        HttpMethod.GET,
+                        request,
+                        QuoteDTO[].class
+                    );
+                    
+                    QuoteDTO[] quotes = response.getBody();
+                    
+                    // Reset failure counter on success
+                    consecutiveFailures = 0;
+                    
+                    if (quotes == null || quotes.length == 0) {
+                        hasMore = false;
+                        log.debug("No more quotes found at page {}", pageNumber + 1);
+                    } else {
+                        allQuotes.addAll(Arrays.asList(quotes));
+                        log.debug("Retrieved {} quotes from page {} (total so far: {})", quotes.length, pageNumber + 1, allQuotes.size());
+                        
+                        // If we got fewer quotes than the page size, we've reached the end
+                        if (quotes.length < pageSize) {
+                            hasMore = false;
+                            log.debug("Reached end of quotes (got {} quotes, expected {})", quotes.length, pageSize);
+                        } else {
+                            // Move to next page
+                            offset += pageSize;
+                            pageNumber++;
+                        }
+                    }
+                } catch (org.springframework.web.client.HttpClientErrorException | 
+                         org.springframework.web.client.HttpServerErrorException e) {
+                    // Check if it's a content length exceeded error (usually 413 or 500 with specific message)
+                    String errorMessage = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
+                    boolean isContentLengthError = errorMessage.contains("contentlength") || 
+                                                   errorMessage.contains("content length") ||
+                                                   errorMessage.contains("413") ||
+                                                   (e.getStatusCode() != null && e.getStatusCode().value() == 413);
+                    
+                    if (isContentLengthError || pageSize > 1) {
+                        // If we get a content length error or any error with pageSize > 1, try with pageSize = 1
+                        log.warn("Error fetching page {} with pageSize {}: {}. Trying with pageSize=1 for this page.", 
+                                pageNumber + 1, pageSize, e.getMessage());
+                        
+                        try {
+                            // Try fetching just one quote at a time for this page
+                            String singleQuoteUrl = UriComponentsBuilder.fromHttpUrl(baseUrl)
+                                .queryParam("limit", 1)
+                                .queryParam("offset", offset)
+                                .build(true)
+                                .toUriString();
+                            
+                            log.debug("Retrying with single quote: {}", singleQuoteUrl);
+                            
+                            HttpEntity<?> singleRequest = new HttpEntity<>(headers);
+                            var singleResponse = restTemplate.exchange(
+                                singleQuoteUrl,
+                                HttpMethod.GET,
+                                singleRequest,
+                                QuoteDTO[].class
+                            );
+                            
+                            QuoteDTO[] singleQuotes = singleResponse.getBody();
+                            if (singleQuotes != null && singleQuotes.length > 0) {
+                                allQuotes.addAll(Arrays.asList(singleQuotes));
+                                log.info("Successfully retrieved 1 quote individually (total so far: {})", allQuotes.size());
+                                
+                                // Move to next quote
+                                offset += 1;
+                                pageNumber++;
+                                consecutiveFailures = 0;
+                                
+                                // Continue with normal page size for next iteration
+                                continue;
+                            } else {
+                                // No quotes returned, we've reached the end
+                                hasMore = false;
+                                log.debug("No quotes returned with pageSize=1, reached end");
+                                break;
+                            }
+                        } catch (Exception singleException) {
+                            // Even single quote failed - this quote is too large, skip it
+                            skippedQuotes++;
+                            log.error("Even single quote fetch failed at offset {}: {}. Skipping this quote (too large, likely >10MB attachment) and continuing. Total skipped: {}", 
+                                    offset, singleException.getMessage(), skippedQuotes);
+                            
+                            consecutiveFailures++;
+                            
+                            // Skip this quote and try the next one
+                            offset += 1;
+                            pageNumber++;
+                            
+                            if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                                log.error("Too many consecutive failures ({}). Stopping pagination to avoid infinite loop.", 
+                                        consecutiveFailures);
+                                hasMore = false;
+                                break;
+                            }
+                        }
+                    } else {
+                        // Other type of error, log and continue
+                        log.error("Error fetching page {}: {}. Skipping this page.", pageNumber + 1, e.getMessage());
+                        consecutiveFailures++;
+                        
+                        // Skip this page
+                        offset += pageSize;
+                        pageNumber++;
+                        
+                        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                            log.error("Too many consecutive failures ({}). Stopping pagination.", consecutiveFailures);
+                            hasMore = false;
+                            break;
+                        }
+                    }
+                } catch (Exception e) {
+                    // Generic exception handling
+                    String errorMessage = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
+                    boolean isContentLengthError = errorMessage.contains("contentlength") || 
+                                                   errorMessage.contains("content length") ||
+                                                   errorMessage.contains("exceeded");
+                    
+                    if (isContentLengthError && pageSize > 1) {
+                        // Try with pageSize = 1
+                        log.warn("Content length error at page {}: {}. Trying with pageSize=1.", 
+                                pageNumber + 1, e.getMessage());
+                        
+                        try {
+                            String singleQuoteUrl = UriComponentsBuilder.fromHttpUrl(baseUrl)
+                                .queryParam("limit", 1)
+                                .queryParam("offset", offset)
+                                .build(true)
+                                .toUriString();
+                            
+                            HttpEntity<?> singleRequest = new HttpEntity<>(headers);
+                            var singleResponse = restTemplate.exchange(
+                                singleQuoteUrl,
+                                HttpMethod.GET,
+                                singleRequest,
+                                QuoteDTO[].class
+                            );
+                            
+                            QuoteDTO[] singleQuotes = singleResponse.getBody();
+                            if (singleQuotes != null && singleQuotes.length > 0) {
+                                allQuotes.addAll(Arrays.asList(singleQuotes));
+                                offset += 1;
+                                pageNumber++;
+                                consecutiveFailures = 0;
+                                continue;
+                            }
+                        } catch (Exception singleException) {
+                            skippedQuotes++;
+                            log.error("Single quote fetch also failed: {}. Skipping quote at offset {} (too large, likely >10MB attachment). Total skipped: {}", 
+                                    singleException.getMessage(), offset, skippedQuotes);
+                            offset += 1;
+                            pageNumber++;
+                            consecutiveFailures++;
+                        }
+                    } else {
+                        log.error("Unexpected error fetching page {}: {}. Skipping this page.", 
+                                pageNumber + 1, e.getMessage(), e);
+                        consecutiveFailures++;
+                        offset += pageSize;
+                        pageNumber++;
+                    }
+                    
+                    if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                        log.error("Too many consecutive failures ({}). Stopping pagination.", consecutiveFailures);
+                        hasMore = false;
+                        break;
+                    }
+                }
+            }
+            
+            if (skippedQuotes > 0) {
+                log.warn("Retrieved {} quotes total using pagination ({} pages), but {} quotes were skipped due to size exceeding 10MB limit (likely due to large attachments)", 
+                        allQuotes.size(), pageNumber + 1, skippedQuotes);
+            } else {
+                log.info("Successfully retrieved {} quotes total using pagination ({} pages)", allQuotes.size(), pageNumber + 1);
+            }
+            return allQuotes;
+            
         } catch (Exception e) {
-            log.error("Error calling TMForum API: {}", e.getMessage());
+            log.error("Error calling TMForum API with pagination: {}", e.getMessage(), e);
+            // If pagination fails, try fallback to original method with smaller limit
+            log.warn("Falling back to single request with limit=10");
+            try {
+                String fallbackUrl = UriComponentsBuilder.fromHttpUrl(baseUrl)
+                    .queryParam("limit", 10)
+                    .build(true)
+                    .toUriString();
+                
+                HttpHeaders headers = new HttpHeaders();
+                headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+                HttpEntity<?> request = new HttpEntity<>(headers);
+                
+                var response = restTemplate.exchange(
+                    fallbackUrl,
+                    HttpMethod.GET,
+                    request,
+                    QuoteDTO[].class
+                );
+                
+                QuoteDTO[] quotes = response.getBody();
+                List<QuoteDTO> result = Arrays.asList(quotes != null ? quotes : new QuoteDTO[0]);
+                log.info("Fallback retrieved {} quotes", result.size());
+                return result;
+            } catch (Exception fallbackException) {
+                log.error("Fallback also failed: {}", fallbackException.getMessage());
             return Arrays.asList();
+            }
         }
     }
     
