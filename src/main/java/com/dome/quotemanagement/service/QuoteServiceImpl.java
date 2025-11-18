@@ -305,47 +305,28 @@ public class QuoteServiceImpl implements QuoteService {
     
     @Override
     public List<QuoteDTO> findQuotesByUser(String userId, String role) {
-        String baseUrl = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteListEndpoint();
+        // Extract base URL without query parameters
+        String listEndpoint = appConfig.getTmforumQuoteListEndpoint();
+        String baseUrl = tmforumBaseUrl.trim() + listEndpoint.split("\\?")[0]; // Remove existing query params
         log.debug("Base TMForum list API: {}", baseUrl);
         log.debug("Find tailored quotes parameters - userId: '{}', role: '{}'", userId, role);
 
+        // Validate role
+        if (!QuoteRole.equalsIgnoreCase(role, QuoteRole.SELLER) && !QuoteRole.equalsIgnoreCase(role, QuoteRole.CUSTOMER)) {
+            log.warn("Invalid role provided: {}", role);
+            return Collections.emptyList();
+        }
+
         try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
-            HttpEntity<?> request = new HttpEntity<>(headers);
-
-            // Attempt server-side filtering using provider-supported TMF patterns
-            String filteredUrl = UriComponentsBuilder.fromHttpUrl(baseUrl)
-                .queryParam("category", "tailored")
-                .queryParam("relatedParty.id", userId)
-                .build(true)
-                .toUriString();
-
-            log.debug("Calling TMForum API with server-side filters: {}", filteredUrl);
-
-            ResponseEntity<QuoteDTO[]> response = restTemplate.exchange(
-                filteredUrl,
-                HttpMethod.GET,
-                request,
-                QuoteDTO[].class
-            );
-
-            QuoteDTO[] quotes = response.getBody();
-            if (quotes == null) {
-                log.warn("No quotes found in response");
-                return Collections.emptyList();
-            }
-
-            // If role is invalid, return empty; otherwise return server-filtered results as-is
-            if (!QuoteRole.equalsIgnoreCase(role, QuoteRole.SELLER) && !QuoteRole.equalsIgnoreCase(role, QuoteRole.CUSTOMER)) {
-                log.warn("Invalid role provided: {}", role);
-                return Collections.emptyList();
-            }
-
-            log.info("Retrieved {} quotes from TMForum API using server-side filters (category=tailored, relatedParty.id)", quotes.length);
+            // Use pagination helper with server-side filters
+            java.util.Map<String, String> queryParams = new java.util.HashMap<>();
+            queryParams.put("category", "tailored");
+            queryParams.put("relatedParty.id", userId);
+            
+            List<QuoteDTO> quotes = fetchQuotesWithPagination(baseUrl, queryParams);
             
             // Apply client-side filtering to ensure server-side filters were respected
-            List<QuoteDTO> filteredQuotes = Arrays.stream(quotes)
+            List<QuoteDTO> filteredQuotes = quotes.stream()
                 .filter(quote -> {
                     boolean userRoleMatch = false;
                     if (QuoteRole.equalsIgnoreCase(role, QuoteRole.SELLER)) {
@@ -360,9 +341,6 @@ public class QuoteServiceImpl implements QuoteService {
                                 .anyMatch(party -> userId.equals(party.getId()) 
                                     && QuoteRole.equalsIgnoreCase(party.getRole(), QuoteRole.CUSTOMER));
                         }
-                    } else {
-                        log.warn("Invalid role provided: {}", role);
-                        return false;
                     }
 
                     if (!userRoleMatch) {
@@ -377,9 +355,9 @@ public class QuoteServiceImpl implements QuoteService {
                 })
                 .collect(Collectors.toList());
             
-            if (filteredQuotes.size() < quotes.length) {
+            if (filteredQuotes.size() < quotes.size()) {
                 log.warn("Server-side filtering was incomplete: returned {} quotes but only {} match the criteria after client-side validation", 
-                    quotes.length, filteredQuotes.size());
+                    quotes.size(), filteredQuotes.size());
             }
             
             log.info("Client-side validated {} tailored quotes for user '{}', role '{}'", 
@@ -388,114 +366,40 @@ public class QuoteServiceImpl implements QuoteService {
             return filteredQuotes;
 
         } catch (Exception e) {
-            // Fallback to client-side filtering if provider does not support server-side filters
-            log.warn("Server-side filtering failed or unsupported ({}). Falling back to client-side filtering.", e.getMessage());
-            try {
-                String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteListEndpoint();
-                HttpHeaders headers = new HttpHeaders();
-                headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
-                HttpEntity<?> request = new HttpEntity<>(headers);
-
-                ResponseEntity<QuoteDTO[]> response = restTemplate.exchange(
-                    url,
-                    HttpMethod.GET,
-                    request,
-                    QuoteDTO[].class
-                );
-
-                QuoteDTO[] quotes = response.getBody();
-                if (quotes == null) {
-                    log.warn("No quotes found in fallback response");
-                    return Collections.emptyList();
-                }
-
-                List<QuoteDTO> filteredQuotes = Arrays.stream(quotes)
-                    .filter(quote -> {
-                        boolean userRoleMatch = false;
-                        if (QuoteRole.equalsIgnoreCase(role, QuoteRole.SELLER)) {
-                            if (quote.getRelatedParty() != null) {
-                                userRoleMatch = quote.getRelatedParty().stream()
-                                    .anyMatch(party -> userId.equals(party.getId()) 
-                                        && QuoteRole.equalsIgnoreCase(party.getRole(), QuoteRole.SELLER));
-                            }
-                        } else if (QuoteRole.equalsIgnoreCase(role, QuoteRole.CUSTOMER)) {
-                            if (quote.getRelatedParty() != null) {
-                                userRoleMatch = quote.getRelatedParty().stream()
-                                    .anyMatch(party -> userId.equals(party.getId()) 
-                                        && QuoteRole.equalsIgnoreCase(party.getRole(), QuoteRole.CUSTOMER));
-                            }
-                        } else {
-                            log.warn("Invalid role provided: {}", role);
-                            return false;
-                        }
-
-                        if (!userRoleMatch) {
-                            return false;
-                        }
-
-                        if (!"tailored".equalsIgnoreCase(quote.getCategory())) {
-                            return false;
-                        }
-
-                        return true;
-                    })
-                    .collect(Collectors.toList());
-
-                log.info("Fallback client-side filtering produced {} quotes (tailored) for user '{}' and role '{}'", filteredQuotes.size(), userId, role);
-                return filteredQuotes;
-            } catch (Exception ex) {
-                log.error("Error finding quotes by user (fallback failed): {}", ex.getMessage(), ex);
-                return Collections.emptyList();
-            }
+            log.error("Error finding quotes by user: {}", e.getMessage(), e);
+            return Collections.emptyList();
         }
     }
     
     @Override
     public List<QuoteDTO> findTenderingQuotesByUser(String userId, String role, String externalId) {
-        String baseUrl = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteListEndpoint();
+        // Extract base URL without query parameters
+        String listEndpoint = appConfig.getTmforumQuoteListEndpoint();
+        String baseUrl = tmforumBaseUrl.trim() + listEndpoint.split("\\?")[0]; // Remove existing query params
         log.debug("Base TMForum list API: {}", baseUrl);
         log.debug("Find tendering quotes parameters - userId: '{}', role: '{}', externalId: '{}'", userId, role, externalId);
 
         boolean filterByExternalId = externalId != null && !externalId.trim().isEmpty();
 
+        // Validate role
+        if (!QuoteRole.equalsIgnoreCase(role, QuoteRole.SELLER) && !QuoteRole.equalsIgnoreCase(role, QuoteRole.CUSTOMER)) {
+            log.warn("Invalid role provided: {}", role);
+            return Collections.emptyList();
+        }
+
         try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
-            HttpEntity<?> request = new HttpEntity<>(headers);
-
-            UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(baseUrl)
-                .queryParam("category", "tender")
-                .queryParam("relatedParty.id", userId);
+            // Use pagination helper with server-side filters
+            java.util.Map<String, String> queryParams = new java.util.HashMap<>();
+            queryParams.put("category", "tender");
+            queryParams.put("relatedParty.id", userId);
             if (filterByExternalId) {
-                builder.queryParam("externalId", externalId);
+                queryParams.put("externalId", externalId);
             }
-            String filteredUrl = builder.build(true).toUriString();
-
-            log.debug("Calling TMForum API with server-side filters: {}", filteredUrl);
-
-            ResponseEntity<QuoteDTO[]> response = restTemplate.exchange(
-                filteredUrl,
-                HttpMethod.GET,
-                request,
-                QuoteDTO[].class
-            );
-
-            QuoteDTO[] quotes = response.getBody();
-            if (quotes == null) {
-                log.warn("No quotes found in response");
-                return Collections.emptyList();
-            }
-
-            if (!QuoteRole.equalsIgnoreCase(role, QuoteRole.SELLER) && !QuoteRole.equalsIgnoreCase(role, QuoteRole.CUSTOMER)) {
-                log.warn("Invalid role provided: {}", role);
-                return Collections.emptyList();
-            }
-
-            log.info("Retrieved {} quotes from TMForum API using server-side filters (category=tender, relatedParty.id{} )",
-                quotes.length, filterByExternalId ? ", externalId" : "");
+            
+            List<QuoteDTO> quotes = fetchQuotesWithPagination(baseUrl, queryParams);
             
             // Apply client-side filtering to ensure server-side filters were respected
-            List<QuoteDTO> filteredQuotes = Arrays.stream(quotes)
+            List<QuoteDTO> filteredQuotes = quotes.stream()
                 .filter(quote -> {
                     boolean userRoleMatch = false;
                     if (QuoteRole.equalsIgnoreCase(role, QuoteRole.SELLER)) {
@@ -510,9 +414,6 @@ public class QuoteServiceImpl implements QuoteService {
                                 .anyMatch(party -> userId.equals(party.getId()) 
                                     && QuoteRole.equalsIgnoreCase(party.getRole(), QuoteRole.CUSTOMER));
                         }
-                    } else {
-                        log.warn("Invalid role provided: {}", role);
-                        return false;
                     }
 
                     if (!userRoleMatch) {
@@ -531,9 +432,9 @@ public class QuoteServiceImpl implements QuoteService {
                 })
                 .collect(Collectors.toList());
             
-            if (filteredQuotes.size() < quotes.length) {
+            if (filteredQuotes.size() < quotes.size()) {
                 log.warn("Server-side filtering was incomplete: returned {} quotes but only {} match the criteria after client-side validation", 
-                    quotes.length, filteredQuotes.size());
+                    quotes.size(), filteredQuotes.size());
             }
             
             if (filterByExternalId) {
@@ -547,158 +448,56 @@ public class QuoteServiceImpl implements QuoteService {
             return filteredQuotes;
 
         } catch (Exception e) {
-            log.warn("Server-side filtering failed or unsupported for tendering ({}). Falling back to client-side filtering.", e.getMessage());
-            try {
-                String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteListEndpoint();
-                HttpHeaders headers = new HttpHeaders();
-                headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
-                HttpEntity<?> request = new HttpEntity<>(headers);
-
-                ResponseEntity<QuoteDTO[]> response = restTemplate.exchange(
-                    url,
-                    HttpMethod.GET,
-                    request,
-                    QuoteDTO[].class
-                );
-
-                QuoteDTO[] quotes = response.getBody();
-                if (quotes == null) {
-                    log.warn("No quotes found in fallback response");
-                    return Collections.emptyList();
-                }
-
-                List<QuoteDTO> filteredQuotes = Arrays.stream(quotes)
-                    .filter(quote -> {
-                        boolean userRoleMatch = false;
-                        if (QuoteRole.equalsIgnoreCase(role, QuoteRole.SELLER)) {
-                            if (quote.getRelatedParty() != null) {
-                                userRoleMatch = quote.getRelatedParty().stream()
-                                    .anyMatch(party -> userId.equals(party.getId()) 
-                                        && QuoteRole.equalsIgnoreCase(party.getRole(), QuoteRole.SELLER));
-                            }
-                        } else if (QuoteRole.equalsIgnoreCase(role, QuoteRole.CUSTOMER)) {
-                            if (quote.getRelatedParty() != null) {
-                                userRoleMatch = quote.getRelatedParty().stream()
-                                    .anyMatch(party -> userId.equals(party.getId()) 
-                                        && QuoteRole.equalsIgnoreCase(party.getRole(), QuoteRole.CUSTOMER));
-                            }
-                        } else {
-                            log.warn("Invalid role provided: {}", role);
-                            return false;
-                        }
-
-                        if (!userRoleMatch) {
-                            return false;
-                        }
-
-                        if (!"tender".equalsIgnoreCase(quote.getCategory())) {
-                            return false;
-                        }
-
-                        if (filterByExternalId && !externalId.equals(quote.getExternalId())) {
-                            return false;
-                        }
-
-                        return true;
-                    })
-                    .collect(Collectors.toList());
-
-                if (filterByExternalId) {
-                    log.info("Fallback client-side filtering produced {} tender quotes for user '{}' , role '{}' , externalId '{}'", filteredQuotes.size(), userId, role, externalId);
-                } else {
-                    log.info("Fallback client-side filtering produced {} tender quotes for user '{}' , role '{}'", filteredQuotes.size(), userId, role);
-                }
-                return filteredQuotes;
-            } catch (Exception ex) {
-                log.error("Error finding tendering quotes by user (fallback failed): {}", ex.getMessage(), ex);
-                return Collections.emptyList();
-            }
+            log.error("Error finding tendering quotes by user: {}", e.getMessage(), e);
+            return Collections.emptyList();
         }
     }
     
     @Override
     public List<QuoteDTO> findCoordinatorQuotesByUser(String userId) {
-        String baseUrl = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteListEndpoint();
+        // Extract base URL without query parameters
+        String listEndpoint = appConfig.getTmforumQuoteListEndpoint();
+        String baseUrl = tmforumBaseUrl.trim() + listEndpoint.split("\\?")[0]; // Remove existing query params
         log.debug("Base TMForum list API: {}", baseUrl);
         log.debug("Find coordinator quotes parameters - userId: '{}'", userId);
 
         try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
-            HttpEntity<?> request = new HttpEntity<>(headers);
-
-            String filteredUrl = UriComponentsBuilder.fromHttpUrl(baseUrl)
-                .queryParam("category", "coordinator")
-                .queryParam("relatedParty.id", userId)
-                .build(true)
-                .toUriString();
-
-            log.debug("Calling TMForum API with server-side filters: {}", filteredUrl);
-
-            ResponseEntity<QuoteDTO[]> response = restTemplate.exchange(
-                filteredUrl,
-                HttpMethod.GET,
-                request,
-                QuoteDTO[].class
-            );
-
-            QuoteDTO[] quotes = response.getBody();
-            if (quotes == null) {
-                log.warn("No quotes found in response");
-                return Collections.emptyList();
+            // Use pagination helper with server-side filters
+            java.util.Map<String, String> queryParams = new java.util.HashMap<>();
+            queryParams.put("category", "coordinator");
+            queryParams.put("relatedParty.id", userId);
+            
+            List<QuoteDTO> quotes = fetchQuotesWithPagination(baseUrl, queryParams);
+            
+            // Apply client-side filtering to ensure server-side filters were respected
+            List<QuoteDTO> filteredQuotes = quotes.stream()
+                .filter(quote -> {
+                    boolean userMatch = false;
+                    if (quote.getRelatedParty() != null) {
+                        userMatch = quote.getRelatedParty().stream()
+                            .anyMatch(party -> userId.equals(party.getId()));
+                    }
+                    if (!userMatch) {
+                        return false;
+                    }
+                    if (!"coordinator".equals(quote.getCategory())) {
+                        return false;
+                    }
+                    return true;
+                })
+                .collect(Collectors.toList());
+            
+            if (filteredQuotes.size() < quotes.size()) {
+                log.warn("Server-side filtering was incomplete: returned {} quotes but only {} match the criteria after client-side validation", 
+                    quotes.size(), filteredQuotes.size());
             }
-
-            log.info("Retrieved {} coordinator quotes using server-side filters (category=coordinator, relatedParty.id)", quotes.length);
-            return Arrays.asList(quotes);
+            
+            log.info("Client-side validated {} coordinator quotes for user '{}'", filteredQuotes.size(), userId);
+            return filteredQuotes;
 
         } catch (Exception e) {
-            log.warn("Server-side filtering failed or unsupported for coordinator ({}). Falling back to client-side filtering.", e.getMessage());
-            try {
-                String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteListEndpoint();
-                HttpHeaders headers = new HttpHeaders();
-                headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
-                HttpEntity<?> request = new HttpEntity<>(headers);
-
-                ResponseEntity<QuoteDTO[]> response = restTemplate.exchange(
-                    url,
-                    HttpMethod.GET,
-                    request,
-                    QuoteDTO[].class
-                );
-
-                QuoteDTO[] quotes = response.getBody();
-                if (quotes == null) {
-                    log.warn("No quotes found in fallback response");
-                    return Collections.emptyList();
-                }
-
-                List<QuoteDTO> filteredQuotes = Arrays.stream(quotes)
-                    .filter(quote -> {
-                        boolean userMatch = false;
-                        if (quote.getRelatedParty() != null) {
-                            userMatch = quote.getRelatedParty().stream()
-                                .anyMatch(party -> userId.equals(party.getId()));
-                        }
-                        if (!userMatch && quote.getRelatedParty() != null) {
-                            userMatch = quote.getRelatedParty().stream()
-                                .anyMatch(party -> userId.equals(party.getId()));
-                        }
-                        if (!userMatch) {
-                            return false;
-                        }
-                        if (!"coordinator".equals(quote.getCategory())) {
-                            return false;
-                        }
-                        return true;
-                    })
-                    .collect(Collectors.toList());
-
-                log.info("Fallback client-side filtering produced {} coordinator quotes for user '{}'", filteredQuotes.size(), userId);
-                return filteredQuotes;
-            } catch (Exception ex) {
-                log.error("Error finding coordinator quotes by user (fallback failed): {}", ex.getMessage(), ex);
-                return Collections.emptyList();
-            }
+            log.error("Error finding coordinator quotes by user: {}", e.getMessage(), e);
+            return Collections.emptyList();
         }
     }
     
@@ -1937,6 +1736,215 @@ public class QuoteServiceImpl implements QuoteService {
         }
     }
 
+    /**
+     * Helper method to fetch quotes with pagination to avoid ContentLengthExceededException
+     * Supports optional query parameters for filtering
+     */
+    private List<QuoteDTO> fetchQuotesWithPagination(String baseUrl, java.util.Map<String, String> queryParams) {
+        int pageSize = paginationPageSize;
+        int offset = 0;
+        List<QuoteDTO> allQuotes = new java.util.ArrayList<>();
+        
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+            
+            boolean hasMore = true;
+            int pageNumber = 0;
+            int consecutiveFailures = 0;
+            int skippedQuotes = 0;
+            final int MAX_CONSECUTIVE_FAILURES = 3;
+            
+            while (hasMore) {
+                try {
+                    UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(baseUrl)
+                        .queryParam("limit", pageSize)
+                        .queryParam("offset", offset);
+                    
+                    // Add optional query parameters
+                    if (queryParams != null) {
+                        queryParams.forEach(builder::queryParam);
+                    }
+                    
+                    String url = builder.build(true).toUriString();
+                    
+                    log.debug("Fetching quotes page {} (offset={}, limit={}): {}", pageNumber + 1, offset, pageSize, url);
+                    
+                    HttpEntity<?> request = new HttpEntity<>(headers);
+                    
+                    var response = restTemplate.exchange(
+                        url,
+                        HttpMethod.GET,
+                        request,
+                        QuoteDTO[].class
+                    );
+                    
+                    QuoteDTO[] quotes = response.getBody();
+                    consecutiveFailures = 0;
+                    
+                    if (quotes == null || quotes.length == 0) {
+                        hasMore = false;
+                        log.debug("No more quotes found at page {}", pageNumber + 1);
+                    } else {
+                        allQuotes.addAll(Arrays.asList(quotes));
+                        log.debug("Retrieved {} quotes from page {} (total so far: {})", quotes.length, pageNumber + 1, allQuotes.size());
+                        
+                        if (quotes.length < pageSize) {
+                            hasMore = false;
+                            log.debug("Reached end of quotes (got {} quotes, expected {})", quotes.length, pageSize);
+                        } else {
+                            offset += pageSize;
+                            pageNumber++;
+                        }
+                    }
+                } catch (org.springframework.web.client.HttpClientErrorException | 
+                         org.springframework.web.client.HttpServerErrorException e) {
+                    String errorMessage = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
+                    boolean isContentLengthError = errorMessage.contains("contentlength") || 
+                                                   errorMessage.contains("content length") ||
+                                                   errorMessage.contains("413") ||
+                                                   (e.getStatusCode() != null && e.getStatusCode().value() == 413);
+                    
+                    if (isContentLengthError || pageSize > 1) {
+                        log.warn("Error fetching page {} with pageSize {}: {}. Trying with pageSize=1 for this page.", 
+                                pageNumber + 1, pageSize, e.getMessage());
+                        
+                        try {
+                            UriComponentsBuilder singleBuilder = UriComponentsBuilder.fromHttpUrl(baseUrl)
+                                .queryParam("limit", 1)
+                                .queryParam("offset", offset);
+                            
+                            if (queryParams != null) {
+                                queryParams.forEach(singleBuilder::queryParam);
+                            }
+                            
+                            String singleQuoteUrl = singleBuilder.build(true).toUriString();
+                            
+                            log.debug("Retrying with single quote: {}", singleQuoteUrl);
+                            
+                            HttpEntity<?> singleRequest = new HttpEntity<>(headers);
+                            var singleResponse = restTemplate.exchange(
+                                singleQuoteUrl,
+                                HttpMethod.GET,
+                                singleRequest,
+                                QuoteDTO[].class
+                            );
+                            
+                            QuoteDTO[] singleQuotes = singleResponse.getBody();
+                            if (singleQuotes != null && singleQuotes.length > 0) {
+                                allQuotes.addAll(Arrays.asList(singleQuotes));
+                                log.info("Successfully retrieved 1 quote individually (total so far: {})", allQuotes.size());
+                                offset += 1;
+                                pageNumber++;
+                                consecutiveFailures = 0;
+                                continue;
+                            } else {
+                                hasMore = false;
+                                log.debug("No quotes returned with pageSize=1, reached end");
+                                break;
+                            }
+                        } catch (Exception singleException) {
+                            skippedQuotes++;
+                            log.error("Even single quote fetch failed at offset {}: {}. Skipping this quote (too large, likely >10MB attachment) and continuing. Total skipped: {}", 
+                                    offset, singleException.getMessage(), skippedQuotes);
+                            consecutiveFailures++;
+                            offset += 1;
+                            pageNumber++;
+                            
+                            if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                                log.error("Too many consecutive failures ({}). Stopping pagination to avoid infinite loop.", 
+                                        consecutiveFailures);
+                                hasMore = false;
+                                break;
+                            }
+                        }
+                    } else {
+                        log.error("Error fetching page {}: {}. Skipping this page.", pageNumber + 1, e.getMessage());
+                        consecutiveFailures++;
+                        offset += pageSize;
+                        pageNumber++;
+                        
+                        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                            log.error("Too many consecutive failures ({}). Stopping pagination.", consecutiveFailures);
+                            hasMore = false;
+                            break;
+                        }
+                    }
+                } catch (Exception e) {
+                    String errorMessage = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
+                    boolean isContentLengthError = errorMessage.contains("contentlength") || 
+                                                   errorMessage.contains("content length") ||
+                                                   errorMessage.contains("exceeded");
+                    
+                    if (isContentLengthError && pageSize > 1) {
+                        log.warn("Content length error at page {}: {}. Trying with pageSize=1.", 
+                                pageNumber + 1, e.getMessage());
+                        
+                        try {
+                            UriComponentsBuilder singleBuilder = UriComponentsBuilder.fromHttpUrl(baseUrl)
+                                .queryParam("limit", 1)
+                                .queryParam("offset", offset);
+                            
+                            if (queryParams != null) {
+                                queryParams.forEach(singleBuilder::queryParam);
+                            }
+                            
+                            String singleQuoteUrl = singleBuilder.build(true).toUriString();
+                            
+                            HttpEntity<?> singleRequest = new HttpEntity<>(headers);
+                            var singleResponse = restTemplate.exchange(
+                                singleQuoteUrl,
+                                HttpMethod.GET,
+                                singleRequest,
+                                QuoteDTO[].class
+                            );
+                            
+                            QuoteDTO[] singleQuotes = singleResponse.getBody();
+                            if (singleQuotes != null && singleQuotes.length > 0) {
+                                allQuotes.addAll(Arrays.asList(singleQuotes));
+                                offset += 1;
+                                pageNumber++;
+                                consecutiveFailures = 0;
+                                continue;
+                            }
+                        } catch (Exception singleException) {
+                            skippedQuotes++;
+                            log.error("Single quote fetch also failed: {}. Skipping quote at offset {} (too large, likely >10MB attachment). Total skipped: {}", 
+                                    singleException.getMessage(), offset, skippedQuotes);
+                            offset += 1;
+                            pageNumber++;
+                            consecutiveFailures++;
+                        }
+                    } else {
+                        log.error("Unexpected error fetching page {}: {}. Skipping this page.", 
+                                pageNumber + 1, e.getMessage(), e);
+                        consecutiveFailures++;
+                        offset += pageSize;
+                        pageNumber++;
+                    }
+                    
+                    if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                        log.error("Too many consecutive failures ({}). Stopping pagination.", consecutiveFailures);
+                        hasMore = false;
+                        break;
+                    }
+                }
+            }
+            
+            if (skippedQuotes > 0) {
+                log.warn("Retrieved {} quotes total using pagination ({} pages), but {} quotes were skipped due to size exceeding 10MB limit (likely due to large attachments)", 
+                        allQuotes.size(), pageNumber + 1, skippedQuotes);
+            } else {
+                log.info("Successfully retrieved {} quotes total using pagination ({} pages)", allQuotes.size(), pageNumber + 1);
+            }
+            return allQuotes;
+            
+        } catch (Exception e) {
+            log.error("Error in pagination helper: {}", e.getMessage(), e);
+            return Collections.emptyList();
+        }
+    }
+    
     /**
      * Wait until the attachment is actually persisted by the TMForum API
      * The TMForum API might return success before async processing completes
