@@ -148,9 +148,9 @@ public class QuoteExpirationScheduler {
 
     private void sendTenderStatusChangeNotifications(QuoteDTO quote, String newStatus) {
         try {
-            // Find customer and provider IDs
-            String customerId = quote.getRelatedParty().stream()
-                .filter(party -> QuoteRole.isCustomer(party.getRole()))
+            // Find buyer and provider IDs
+            String buyerId = quote.getRelatedParty().stream()
+                .filter(party -> QuoteRole.isBuyer(party.getRole()))
                 .findFirst()
                 .map(party -> party.getId())
                 .orElse(null);
@@ -161,12 +161,12 @@ public class QuoteExpirationScheduler {
                 .map(party -> party.getId())
                 .orElse(null);
 
-            if (customerId != null && providerId != null) {
+            if (buyerId != null && providerId != null) {
                 String message = getTenderStatusChangeMessage(quote, newStatus);
 
                 NotificationRequestDTO notification = NotificationRequestDTO.builder()
                     .sender(providerId)
-                    .recipient(customerId)
+                    .recipient(buyerId)
                     .subject("Tender Status Update")
                     .message(message)
                     .build();
@@ -238,9 +238,9 @@ public class QuoteExpirationScheduler {
 
     private void sendExpirationNotifications(QuoteDTO quote) {
         try {
-            // Find customer and provider IDs
-            String customerId = quote.getRelatedParty().stream()
-                .filter(party -> QuoteRole.isCustomer(party.getRole()))
+            // Find buyer and provider IDs
+            String buyerId = quote.getRelatedParty().stream()
+                .filter(party -> QuoteRole.isBuyer(party.getRole()))
                 .findFirst()
                 .map(party -> party.getId())
                 .orElse(null);
@@ -251,7 +251,7 @@ public class QuoteExpirationScheduler {
                 .map(party -> party.getId())
                 .orElse(null);
 
-            if (customerId != null && providerId != null) {
+            if (buyerId != null && providerId != null) {
                 String message = String.format(
                     "Quote (ID: %s) has been automatically cancelled due to expiration of the requested completion date (%s).",
                     quote.getId(),
@@ -260,7 +260,7 @@ public class QuoteExpirationScheduler {
 
                 NotificationRequestDTO notification = NotificationRequestDTO.builder()
                     .sender(providerId)
-                    .recipient(customerId)
+                    .recipient(buyerId)
                     .subject("Quote Expired")
                     .message(message)
                     .build();

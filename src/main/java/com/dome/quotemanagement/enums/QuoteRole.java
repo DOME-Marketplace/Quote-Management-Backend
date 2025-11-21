@@ -6,7 +6,7 @@ package com.dome.quotemanagement.enums;
  */
 public class QuoteRole {
     
-    public static final String CUSTOMER = "customer";
+    public static final String BUYER = "buyer";
     public static final String SELLER = "seller";
     public static final String BUYER_OPERATOR = "BuyerOperator";
     public static final String SELLER_OPERATOR = "SellerOperator";
@@ -32,12 +32,12 @@ public class QuoteRole {
     }
     
     /**
-     * Check if a role string matches CUSTOMER (case-insensitive)
+     * Check if a role string matches BUYER (case-insensitive)
      * @param role the role to check
-     * @return true if role is CUSTOMER (case-insensitive), false otherwise
+     * @return true if role is BUYER (case-insensitive), false otherwise
      */
-    public static boolean isCustomer(String role) {
-        return equalsIgnoreCase(role, CUSTOMER);
+    public static boolean isBuyer(String role) {
+        return equalsIgnoreCase(role, BUYER);
     }
     
     /**

@@ -7,6 +7,7 @@ import com.dome.quotemanagement.dto.tmforum.QuoteItemDTO;
 import com.dome.quotemanagement.dto.tmforum.NoteDTO;
 import com.dome.quotemanagement.dto.NotificationRequestDTO;
 import com.dome.quotemanagement.enums.QuoteRole;
+import com.dome.quotemanagement.exception.QuoteManagementException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -14,6 +15,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
@@ -312,7 +314,7 @@ public class QuoteServiceImpl implements QuoteService {
         log.debug("Find tailored quotes parameters - userId: '{}', role: '{}'", userId, role);
 
         // Validate role
-        if (!QuoteRole.equalsIgnoreCase(role, QuoteRole.SELLER) && !QuoteRole.equalsIgnoreCase(role, QuoteRole.CUSTOMER)) {
+        if (!QuoteRole.equalsIgnoreCase(role, QuoteRole.SELLER) && !QuoteRole.equalsIgnoreCase(role, QuoteRole.BUYER)) {
             log.warn("Invalid role provided: {}", role);
             return Collections.emptyList();
         }
@@ -335,11 +337,11 @@ public class QuoteServiceImpl implements QuoteService {
                                 .anyMatch(party -> userId.equals(party.getId()) 
                                     && QuoteRole.equalsIgnoreCase(party.getRole(), QuoteRole.SELLER));
                         }
-                    } else if (QuoteRole.equalsIgnoreCase(role, QuoteRole.CUSTOMER)) {
+                    } else if (QuoteRole.equalsIgnoreCase(role, QuoteRole.BUYER)) {
                         if (quote.getRelatedParty() != null) {
                             userRoleMatch = quote.getRelatedParty().stream()
                                 .anyMatch(party -> userId.equals(party.getId()) 
-                                    && QuoteRole.equalsIgnoreCase(party.getRole(), QuoteRole.CUSTOMER));
+                                    && QuoteRole.equalsIgnoreCase(party.getRole(), QuoteRole.BUYER));
                         }
                     }
 
@@ -382,7 +384,7 @@ public class QuoteServiceImpl implements QuoteService {
         boolean filterByExternalId = externalId != null && !externalId.trim().isEmpty();
 
         // Validate role
-        if (!QuoteRole.equalsIgnoreCase(role, QuoteRole.SELLER) && !QuoteRole.equalsIgnoreCase(role, QuoteRole.CUSTOMER)) {
+        if (!QuoteRole.equalsIgnoreCase(role, QuoteRole.SELLER) && !QuoteRole.equalsIgnoreCase(role, QuoteRole.BUYER)) {
             log.warn("Invalid role provided: {}", role);
             return Collections.emptyList();
         }
@@ -408,11 +410,11 @@ public class QuoteServiceImpl implements QuoteService {
                                 .anyMatch(party -> userId.equals(party.getId()) 
                                     && QuoteRole.equalsIgnoreCase(party.getRole(), QuoteRole.SELLER));
                         }
-                    } else if (QuoteRole.equalsIgnoreCase(role, QuoteRole.CUSTOMER)) {
+                    } else if (QuoteRole.equalsIgnoreCase(role, QuoteRole.BUYER)) {
                         if (quote.getRelatedParty() != null) {
                             userRoleMatch = quote.getRelatedParty().stream()
                                 .anyMatch(party -> userId.equals(party.getId()) 
-                                    && QuoteRole.equalsIgnoreCase(party.getRole(), QuoteRole.CUSTOMER));
+                                    && QuoteRole.equalsIgnoreCase(party.getRole(), QuoteRole.BUYER));
                         }
                     }
 
@@ -543,28 +545,31 @@ public class QuoteServiceImpl implements QuoteService {
     }
     
     @Override
-    public QuoteDTO create(String customerMessage, String customerIdRef, String providerIdRef, String productOfferingId) {
-        log.debug("Creating tailored quote with parameters - customerMessage: '{}', customerIdRef: '{}', providerIdRef: '{}', productOfferingId: '{}'", 
-                  customerMessage, customerIdRef, providerIdRef, productOfferingId);
+    public QuoteDTO create(String buyerMessage, String buyerIdRef, String providerIdRef, String productOfferingId) {
+        log.debug("Creating tailored quote with parameters - buyerMessage: '{}', buyerIdRef: '{}', providerIdRef: '{}', productOfferingId: '{}'", 
+                  buyerMessage, buyerIdRef, providerIdRef, productOfferingId);
         
         // For tailored quotes: category="tailored" (hardcoded), externalId="0000" (not significant)
-        return createInternal(customerMessage, customerIdRef, providerIdRef, productOfferingId, "tailored", "0000");
+        return createInternal(buyerMessage, buyerIdRef, providerIdRef, productOfferingId, "tailored", "0000");
     }
     
-    private QuoteDTO createInternal(String customerMessage, String customerIdRef, String providerIdRef, String productOfferingId, String category, String externalId) {
+    private QuoteDTO createInternal(String buyerMessage, String buyerIdRef, String providerIdRef, String productOfferingId, String category, String externalId) {
         String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteEndpoint();
         log.debug("Calling external TMForum API: {}", url);
-        log.debug("Create quote parameters - customerMessage: '{}', customerIdRef: '{}', providerIdRef: '{}', productOfferingId: '{}', category: '{}', externalId: '{}'", 
-                  customerMessage, customerIdRef, providerIdRef, productOfferingId, category, externalId);
+        log.debug("Create quote parameters - buyerMessage: '{}', buyerIdRef: '{}', providerIdRef: '{}', productOfferingId: '{}', category: '{}', externalId: '{}'", 
+                  buyerMessage, buyerIdRef, providerIdRef, productOfferingId, category, externalId);
         
-        // Check if providerIdRef is equal to customerIdRef
-        if (providerIdRef != null && customerIdRef != null && providerIdRef.equals(customerIdRef)) {
-            throw new IllegalArgumentException("The user cannot request a quote for its own service!");
+        // Check if providerIdRef is equal to buyerIdRef
+        if (providerIdRef != null && buyerIdRef != null && providerIdRef.equals(buyerIdRef)) {
+            throw new QuoteManagementException(
+                "The user cannot request a quote for its own service!", 
+                HttpStatus.CONFLICT
+            );
         }
         
         try {
             // Build a minimal JSON payload that conforms to TMForum standards
-            String jsonPayload = buildCreateQuoteJson(customerMessage, customerIdRef, providerIdRef, productOfferingId, category, externalId);
+            String jsonPayload = buildCreateQuoteJson(buyerMessage, buyerIdRef, providerIdRef, productOfferingId, category, externalId);
             
             // Set proper headers for JSON
             HttpHeaders headers = new HttpHeaders();
@@ -596,11 +601,11 @@ public class QuoteServiceImpl implements QuoteService {
             // Send notification after successful quote creation
             if (response != null && response.getId() != null) {
                 NotificationRequestDTO notification = NotificationRequestDTO.builder()
-                    .sender(customerIdRef)
+                    .sender(buyerIdRef)
                     .recipient(providerIdRef)
                     .subject("New Quote Created")
                     .message("New quote created with ID: " + response.getId() + 
-                            (customerMessage != null ? "\nMessage: " + customerMessage : ""))
+                            (buyerMessage != null ? "\nMessage: " + buyerMessage : ""))
                     .build();
                 
                 notificationService.sendNotification(notification);
@@ -615,25 +620,25 @@ public class QuoteServiceImpl implements QuoteService {
     }
     
     @Override
-    public QuoteDTO createTenderingQuote(String customerMessage, String customerIdRef, String providerIdRef, String externalId) {
-        log.debug("Creating tendering quote with parameters - customerMessage: '{}', customerIdRef: '{}', providerIdRef: '{}', externalId: '{}'", 
-                  customerMessage, customerIdRef, providerIdRef, externalId);
+    public QuoteDTO createTenderingQuote(String buyerMessage, String buyerIdRef, String providerIdRef, String externalId) {
+        log.debug("Creating tendering quote with parameters - buyerMessage: '{}', buyerIdRef: '{}', providerIdRef: '{}', externalId: '{}'", 
+                  buyerMessage, buyerIdRef, providerIdRef, externalId);
         
         // For tendering quotes: category="tender" (hardcoded), externalId from parameter, no productOfferingId needed
-        return createInternal(customerMessage, customerIdRef, providerIdRef, null, "tender", externalId);
+        return createInternal(buyerMessage, buyerIdRef, providerIdRef, null, "tender", externalId);
     }
     
     @Override
-    public QuoteDTO createCoordinatorQuote(String customerMessage, String customerIdRef) {
-        log.debug("Creating coordinator quote with parameters - customerMessage: '{}', customerIdRef: '{}'", 
-                  customerMessage, customerIdRef);
+    public QuoteDTO createCoordinatorQuote(String buyerMessage, String buyerIdRef) {
+        log.debug("Creating coordinator quote with parameters - buyerMessage: '{}', buyerIdRef: '{}'", 
+                  buyerMessage, buyerIdRef);
         
         String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteEndpoint();
         log.debug("Calling external TMForum API for coordinator quote: {}", url);
         
         try {
             // Build a minimal JSON payload for coordinator quote
-            String jsonPayload = buildCoordinatorQuoteJson(customerMessage, customerIdRef);
+            String jsonPayload = buildCoordinatorQuoteJson(buyerMessage, buyerIdRef);
             
             // Set proper headers for JSON
             HttpHeaders headers = new HttpHeaders();
@@ -828,13 +833,13 @@ public class QuoteServiceImpl implements QuoteService {
                 log.info("Attachment persistence confirmed for quote: {} and file: {}", quoteId, file.getOriginalFilename());
             }
 
-            // Send notification to customer about the new document
+            // Send notification to buyer about the new document
             if (updatedQuote != null) {
-                // Find customer ID from quote.relatedParty where role is "Customer"
-                String customerId = null;
+                // Find buyer ID from quote.relatedParty where role is "Buyer"
+                String buyerId = null;
                 if (updatedQuote.getRelatedParty() != null) {
-                    customerId = updatedQuote.getRelatedParty().stream()
-                        .filter(party -> QuoteRole.isCustomer(party.getRole()))
+                    buyerId = updatedQuote.getRelatedParty().stream()
+                        .filter(party -> QuoteRole.isBuyer(party.getRole()))
                         .findFirst()
                         .map(party -> party.getId())
                         .orElse(null);
@@ -850,7 +855,7 @@ public class QuoteServiceImpl implements QuoteService {
                         .orElse(null);
                 }
 
-                if (customerId != null && providerId != null) {
+                if (buyerId != null && providerId != null) {
                     String message = String.format(
                         "A new document has been uploaded to your quote (ID: %s):\n" +
                         "Document: %s\n" +
@@ -862,16 +867,16 @@ public class QuoteServiceImpl implements QuoteService {
 
                     NotificationRequestDTO notification = NotificationRequestDTO.builder()
                         .sender(providerId)
-                        .recipient(customerId)
+                        .recipient(buyerId)
                         .subject("New Document Uploaded")
                         .message(message)
                         .build();
 
                     notificationService.sendNotification(notification);
                     
-                    log.info("Notification sent to customer {} about new document upload for quote {}", customerId, quoteId);
+                    log.info("Notification sent to buyer {} about new document upload for quote {}", buyerId, quoteId);
                 } else {
-                    log.warn("Could not send notification - customerId: {}, providerId: {} (relatedParty data may be missing from PATCH response)", customerId, providerId);
+                    log.warn("Could not send notification - buyerId: {}, providerId: {} (relatedParty data may be missing from PATCH response)", buyerId, providerId);
                 }
             }
             
@@ -1274,14 +1279,14 @@ public class QuoteServiceImpl implements QuoteService {
     /**
      * Build a minimal JSON payload for coordinator quote creation
      */
-    private String buildCoordinatorQuoteJson(String customerMessage, String customerIdRef) {
+    private String buildCoordinatorQuoteJson(String buyerMessage, String buyerIdRef) {
         try {
             // Create the root JSON object
             ObjectNode quoteJson = objectMapper.createObjectNode();
             
             // Add description if provided
-            if (customerMessage != null && !customerMessage.trim().isEmpty()) {
-                quoteJson.put("description", customerMessage);
+            if (buyerMessage != null && !buyerMessage.trim().isEmpty()) {
+                quoteJson.put("description", buyerMessage);
             }
             
             // Add category for coordinator quote
@@ -1296,17 +1301,17 @@ public class QuoteServiceImpl implements QuoteService {
             quoteItem.put("quantity", 1);
             quoteItem.set("note", objectMapper.createObjectNode()); // Empty note object
             
-            // Add customer and buyer operator as relatedParty at the quote level
+            // Add buyer and buyer operator as relatedParty at the quote level
             ArrayNode relatedPartyArray = objectMapper.createArrayNode();
-            if (customerIdRef != null && !customerIdRef.trim().isEmpty()) {
-                ObjectNode customerParty = objectMapper.createObjectNode();
-                customerParty.put("@type", "RelatedParty");
-                customerParty.put("id", customerIdRef);
-                customerParty.put("href", customerIdRef);
-                customerParty.put("role", QuoteRole.CUSTOMER);
-                customerParty.put("name", customerIdRef);
-                customerParty.put("@referredType", "individual");
-                relatedPartyArray.add(customerParty);
+            if (buyerIdRef != null && !buyerIdRef.trim().isEmpty()) {
+                ObjectNode buyerParty = objectMapper.createObjectNode();
+                buyerParty.put("@type", "RelatedParty");
+                buyerParty.put("id", buyerIdRef);
+                buyerParty.put("href", buyerIdRef);
+                buyerParty.put("role", QuoteRole.BUYER);
+                buyerParty.put("name", buyerIdRef);
+                buyerParty.put("@referredType", "individual");
+                relatedPartyArray.add(buyerParty);
 
                 ObjectNode buyerOperator = objectMapper.createObjectNode();
                 buyerOperator.put("id", appConfig.getDidIdentifier());
@@ -1338,14 +1343,14 @@ public class QuoteServiceImpl implements QuoteService {
     /**
      * Build a minimal JSON payload that conforms to TMForum Quote creation standards
      */
-    private String buildCreateQuoteJson(String customerMessage, String customerIdRef, String providerIdRef, String productOfferingId, String category, String externalId) {
+    private String buildCreateQuoteJson(String buyerMessage, String buyerIdRef, String providerIdRef, String productOfferingId, String category, String externalId) {
         try {
             // Create the root JSON object
             ObjectNode quoteJson = objectMapper.createObjectNode();
             
             // Add description if provided
-            if (customerMessage != null && !customerMessage.trim().isEmpty()) {
-                quoteJson.put("description", customerMessage);
+            if (buyerMessage != null && !buyerMessage.trim().isEmpty()) {
+                quoteJson.put("description", buyerMessage);
             }
             
             // Add category if provided
@@ -1358,7 +1363,7 @@ public class QuoteServiceImpl implements QuoteService {
                 quoteJson.put("externalId", externalId);
             }
             
-            // Add relatedParty array at the Quote level for Seller, SellerOperator, Customer and BuyerOperator
+            // Add relatedParty array at the Quote level for Seller, SellerOperator, Buyer and BuyerOperator
             ArrayNode relatedPartyArray = objectMapper.createArrayNode();
             
             // Add provider related party if provided
@@ -1387,16 +1392,16 @@ public class QuoteServiceImpl implements QuoteService {
                 sellerOperatorId,
                 (sellerOperatorId.equals(appConfig.getDidIdentifier()) ? "config" : "productOffering"));
             
-            // Add customer and buyer operator on the quote-level relatedParty
-            if (customerIdRef != null && !customerIdRef.trim().isEmpty()) {
-                ObjectNode customerParty = objectMapper.createObjectNode();
-                customerParty.put("@type", "RelatedParty");
-                customerParty.put("id", customerIdRef);
-                customerParty.put("href", customerIdRef);
-                customerParty.put("role", QuoteRole.CUSTOMER);
-                customerParty.put("name", customerIdRef);
-                customerParty.put("@referredType", "individual");
-                relatedPartyArray.add(customerParty);
+            // Add buyer and buyer operator on the quote-level relatedParty
+            if (buyerIdRef != null && !buyerIdRef.trim().isEmpty()) {
+                ObjectNode buyerParty = objectMapper.createObjectNode();
+                buyerParty.put("@type", "RelatedParty");
+                buyerParty.put("id", buyerIdRef);
+                buyerParty.put("href", buyerIdRef);
+                buyerParty.put("role", QuoteRole.BUYER);
+                buyerParty.put("name", buyerIdRef);
+                buyerParty.put("@referredType", "individual");
+                relatedPartyArray.add(buyerParty);
 
                 ObjectNode buyerOperator = objectMapper.createObjectNode();
                 buyerOperator.put("id", appConfig.getDidIdentifier());
@@ -1521,13 +1526,13 @@ public class QuoteServiceImpl implements QuoteService {
             // The recipient should be the other party (not the sender)
             String recipientId = null;
             
-            // Check if sender is the customer (now in quote.relatedParty)
-            boolean senderIsCustomer = quote.getRelatedParty() != null &&
+            // Check if sender is the buyer (now in quote.relatedParty)
+            boolean senderIsBuyer = quote.getRelatedParty() != null &&
                 quote.getRelatedParty().stream()
-                    .anyMatch(party -> senderId.equals(party.getId()) && QuoteRole.isCustomer(party.getRole()));
+                    .anyMatch(party -> senderId.equals(party.getId()) && QuoteRole.isBuyer(party.getRole()));
             
-            if (senderIsCustomer) {
-                // If sender is customer, recipient is seller (from quote.relatedParty)
+            if (senderIsBuyer) {
+                // If sender is buyer, recipient is seller (from quote.relatedParty)
                 if (quote.getRelatedParty() != null && !quote.getRelatedParty().isEmpty()) {
                     recipientId = quote.getRelatedParty().stream()
                         .filter(party -> QuoteRole.isSeller(party.getRole()))
@@ -1536,16 +1541,16 @@ public class QuoteServiceImpl implements QuoteService {
                         .orElse(null);
                 }
             } else {
-                // If sender is not customer, check if it's seller (from quote.relatedParty)
+                // If sender is not buyer, check if it's seller (from quote.relatedParty)
                 boolean senderIsSeller = quote.getRelatedParty() != null && 
                     quote.getRelatedParty().stream()
                         .anyMatch(party -> senderId.equals(party.getId()) && QuoteRole.isSeller(party.getRole()));
                 
                 if (senderIsSeller) {
-                    // If sender is seller, recipient is customer (now from quote.relatedParty)
+                    // If sender is seller, recipient is buyer (now from quote.relatedParty)
                     if (quote.getRelatedParty() != null && !quote.getRelatedParty().isEmpty()) {
                         recipientId = quote.getRelatedParty().stream()
-                            .filter(party -> QuoteRole.isCustomer(party.getRole()))
+                            .filter(party -> QuoteRole.isBuyer(party.getRole()))
                             .findFirst()
                             .map(party -> party.getId())
                             .orElse(null);
@@ -1588,11 +1593,11 @@ public class QuoteServiceImpl implements QuoteService {
      */
     private void sendStatusUpdateNotifications(QuoteDTO quote, String newStatus) {
         try {
-            // Find customer ID from quote.relatedParty where role is "Customer"
-            String customerId = null;
+            // Find buyer ID from quote.relatedParty where role is "Buyer"
+            String buyerId = null;
             if (quote.getRelatedParty() != null && !quote.getRelatedParty().isEmpty()) {
-                customerId = quote.getRelatedParty().stream()
-                    .filter(party -> QuoteRole.isCustomer(party.getRole()))
+                buyerId = quote.getRelatedParty().stream()
+                    .filter(party -> QuoteRole.isBuyer(party.getRole()))
                     .findFirst()
                     .map(party -> party.getId())
                     .orElse(null);
@@ -1612,11 +1617,11 @@ public class QuoteServiceImpl implements QuoteService {
             String statusMessage = getStatusUpdateMessage(newStatus);
             String subject = "Quote Status Updated - " + newStatus;
 
-            // Send notification to customer
-            if (customerId != null && sellerId != null) {
-                NotificationRequestDTO customerNotification = NotificationRequestDTO.builder()
+            // Send notification to buyer
+            if (buyerId != null && sellerId != null) {
+                NotificationRequestDTO buyerNotification = NotificationRequestDTO.builder()
                     .sender(sellerId)
-                    .recipient(customerId)
+                    .recipient(buyerId)
                     .subject(subject)
                     .message(String.format(
                         "Your quote (ID: %s) status has been updated to: %s\n\n%s",
@@ -1626,16 +1631,16 @@ public class QuoteServiceImpl implements QuoteService {
                     ))
                     .build();
 
-                notificationService.sendNotification(customerNotification);
-                log.info("Status update notification sent to customer {} for quote {}", customerId, quote.getId());
+                notificationService.sendNotification(buyerNotification);
+                log.info("Status update notification sent to buyer {} for quote {}", buyerId, quote.getId());
             } else {
-                log.warn("Could not send customer notification - customerId: {}, sellerId: {}", customerId, sellerId);
+                log.warn("Could not send buyer notification - buyerId: {}, sellerId: {}", buyerId, sellerId);
             }
 
             // Send notification to seller
-            if (sellerId != null && customerId != null) {
+            if (sellerId != null && buyerId != null) {
                 NotificationRequestDTO sellerNotification = NotificationRequestDTO.builder()
-                    .sender(customerId)
+                    .sender(buyerId)
                     .recipient(sellerId)
                     .subject(subject)
                     .message(String.format(
@@ -1649,7 +1654,7 @@ public class QuoteServiceImpl implements QuoteService {
                 notificationService.sendNotification(sellerNotification);
                 log.info("Status update notification sent to seller {} for quote {}", sellerId, quote.getId());
             } else {
-                log.warn("Could not send seller notification - customerId: {}, sellerId: {}", customerId, sellerId);
+                log.warn("Could not send seller notification - buyerId: {}, sellerId: {}", buyerId, sellerId);
             }
 
         } catch (Exception e) {
