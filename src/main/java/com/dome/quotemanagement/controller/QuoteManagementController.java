@@ -58,7 +58,7 @@ public class QuoteManagementController {
     @Operation(
         summary = "List tailored quotes by user", 
         description = "Retrieves a list of tailored quotes related to a specific user and role. The role determines where to look for the user ID: " +
-                     "- If role is 'Buyer', looks for the ID in Quote.QuoteItem.RelatedParty " +
+                     "- If role is 'Customer', looks for the ID in Quote.QuoteItem.RelatedParty " +
                      "- If role is 'Seller', looks for the ID in Quote.RelatedParty " +
                      "This endpoint only returns quotes with category='tailored'. For tendering quotes, use /tendering/quotes/{userId}"
     )
@@ -71,7 +71,7 @@ public class QuoteManagementController {
     public ResponseEntity<List<QuoteDTO>> listQuotesByUser(
             @Parameter(description = "User ID to filter quotes by", required = true)
             @PathVariable String userId,
-            @Parameter(description = "Role to filter quotes by ('Buyer' or 'Seller')", required = true)
+            @Parameter(description = "Role to filter quotes by ('Customer' or 'Seller')", required = true)
             @RequestParam String role) {
         log.info("Received request to list tailored quotes for user: '{}' with role: '{}'", userId, role);
         
@@ -112,7 +112,7 @@ public class QuoteManagementController {
     public ResponseEntity<List<QuoteDTO>> listTenderingQuotesByUser(
             @Parameter(description = "User ID to filter quotes by", required = true)
             @PathVariable String userId,
-            @Parameter(description = "Role to filter quotes by ('Buyer' or 'Seller')", required = true)
+            @Parameter(description = "Role to filter quotes by ('Customer' or 'Seller')", required = true)
             @RequestParam String role,
             @Parameter(description = "External ID to group tendering quotes by the same process (optional - if not provided, returns all tender quotes for the user)", required = false)
             @RequestParam(required = false) String externalId) {
@@ -223,13 +223,13 @@ public class QuoteManagementController {
     public ResponseEntity<QuoteDTO> createQuote(
             @Parameter(description = "Quote creation request", required = true)
             @Valid @RequestBody QuoteCreateRequestDTO request) {
-        log.info("Received request to create tailored quote with payload: buyerMessage='{}', buyerIdRef='{}', providerIdRef='{}', productOfferingId='{}'",
-                request.getBuyerMessage(), request.getBuyerIdRef(), request.getProviderIdRef(), request.getProductOfferingId());
+        log.info("Received request to create tailored quote with payload: customerMessage='{}', customerIdRef='{}', providerIdRef='{}', productOfferingId='{}'",
+                request.getCustomerMessage(), request.getCustomerIdRef(), request.getProviderIdRef(), request.getProductOfferingId());
         
         try {
             QuoteDTO createdQuote = quoteService.create(
-                request.getBuyerMessage(), 
-                request.getBuyerIdRef(), 
+                request.getCustomerMessage(), 
+                request.getCustomerIdRef(), 
                 request.getProviderIdRef(),
                 request.getProductOfferingId()
             );
@@ -257,13 +257,13 @@ public class QuoteManagementController {
     public ResponseEntity<QuoteDTO> createTenderingQuote(
             @Parameter(description = "Tendering quote creation request", required = true)
             @Valid @RequestBody TenderingQuoteCreateRequestDTO request) {
-        log.info("Received request to create tendering quote with payload: buyerMessage='{}', buyerIdRef='{}', providerIdRef='{}', externalId='{}'",
-                request.getBuyerMessage(), request.getBuyerIdRef(), request.getProviderIdRef(), request.getExternalId());
+        log.info("Received request to create tendering quote with payload: customerMessage='{}', customerIdRef='{}', providerIdRef='{}', externalId='{}'",
+                request.getCustomerMessage(), request.getCustomerIdRef(), request.getProviderIdRef(), request.getExternalId());
         
         try {
             QuoteDTO createdQuote = quoteService.createTenderingQuote(
-                request.getBuyerMessage(), 
-                request.getBuyerIdRef(), 
+                request.getCustomerMessage(), 
+                request.getCustomerIdRef(), 
                 request.getProviderIdRef(),
                 request.getExternalId()
             );
@@ -292,13 +292,13 @@ public class QuoteManagementController {
     public ResponseEntity<QuoteDTO> createCoordinatorQuote(
             @Parameter(description = "Coordinator quote creation request", required = true)
             @Valid @RequestBody CoordinatorQuoteCreateRequestDTO request) {
-        log.info("Received request to create coordinator quote with payload: buyerMessage='{}', buyerIdRef='{}'",
-                request.getBuyerMessage(), request.getBuyerIdRef());
+        log.info("Received request to create coordinator quote with payload: customerMessage='{}', customerIdRef='{}'",
+                request.getCustomerMessage(), request.getCustomerIdRef());
         
         try {
             QuoteDTO createdQuote = quoteService.createCoordinatorQuote(
-                request.getBuyerMessage(), 
-                request.getBuyerIdRef()
+                request.getCustomerMessage(), 
+                request.getCustomerIdRef()
             );
             log.info("Successfully created coordinator quote with ID: '{}'", createdQuote.getId());
             return ResponseEntity.status(HttpStatus.CREATED).body(createdQuote);

@@ -5,10 +5,10 @@ import jakarta.validation.constraints.NotBlank;
 
 @Data
 public class QuoteCreateRequestDTO {
-    private String buyerMessage; // Optional - can be null or empty
+    private String customerMessage; // Optional - can be null or empty
     
-    @NotBlank(message = "Buyer ID reference is required")
-    private String buyerIdRef;
+    @NotBlank(message = "Customer ID reference is required")
+    private String customerIdRef;
     
     @NotBlank(message = "Provider ID reference is required")
     private String providerIdRef;
