@@ -7,6 +7,7 @@ import java.util.Optional;
 
 public interface QuoteService {
     List<QuoteDTO> findAllQuotes();
+    List<QuoteDTO> findAllQuotes(Integer limit, Integer offset);
     List<QuoteDTO> findQuotesByUser(String userId, String role);
     List<QuoteDTO> findTenderingQuotesByUser(String userId, String role, String externalId);
     List<QuoteDTO> findCoordinatorQuotesByUser(String userId);

@@ -54,6 +54,34 @@ public class QuoteManagementController {
         }
     }
 
+    @GetMapping("/v4/quote")
+    @Operation(
+        summary = "List quotes (TMF API standard)", 
+        description = "TMF API v4 standard endpoint to retrieve quotes with pagination support. Supports limit and offset query parameters. This endpoint directly calls the external TMF API with the provided parameters."
+    )
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Successfully retrieved quotes",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = QuoteDTO.class))),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
+    public ResponseEntity<List<QuoteDTO>> listQuotesTMF(
+            @Parameter(description = "Maximum number of quotes to return", required = false)
+            @RequestParam(required = false) Integer limit,
+            @Parameter(description = "Number of quotes to skip for pagination", required = false)
+            @RequestParam(required = false) Integer offset) {
+        log.info("Received TMF API request to list quotes with limit={}, offset={}", limit, offset);
+        try {
+            List<QuoteDTO> quotes = quoteService.findAllQuotes(limit, offset);
+            log.info("Successfully retrieved {} quotes via TMF API (limit={}, offset={})", 
+                    quotes.size(), limit, offset);
+            return ResponseEntity.ok(quotes);
+        } catch (Exception e) {
+            log.error("Error listing quotes via TMF API with limit={}, offset={}: {}", 
+                    limit, offset, e.getMessage(), e);
+            throw e;
+        }
+    }
+
     @GetMapping("/quoteByUser/{userId}")
     @Operation(
         summary = "List tailored quotes by user", 
