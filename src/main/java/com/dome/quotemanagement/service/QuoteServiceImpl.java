@@ -306,64 +306,6 @@ public class QuoteServiceImpl implements QuoteService {
     }
     
     @Override
-    public List<QuoteDTO> findAllQuotes(Integer limit, Integer offset) {
-        // Direct call to TMF API with provided limit and offset parameters
-        // This method is used by the TMF standard endpoint /v4/quote
-        String baseUrl = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteEndpoint();
-        
-        // Default values if not provided
-        int queryLimit = (limit != null && limit > 0) ? limit : 100;
-        int queryOffset = (offset != null && offset >= 0) ? offset : 0;
-        
-        log.debug("Calling external TMForum API with limit={}, offset={}: {}", queryLimit, queryOffset, baseUrl);
-        
-        try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
-            
-            // Build URL with pagination parameters
-            String url = UriComponentsBuilder.fromHttpUrl(baseUrl)
-                .queryParam("limit", queryLimit)
-                .queryParam("offset", queryOffset)
-                .build(true)
-                .toUriString();
-            
-            log.debug("Fetching quotes with limit={}, offset={}: {}", queryLimit, queryOffset, url);
-            
-            HttpEntity<?> request = new HttpEntity<>(headers);
-            
-            var response = restTemplate.exchange(
-                url,
-                HttpMethod.GET,
-                request,
-                QuoteDTO[].class
-            );
-            
-            QuoteDTO[] quotes = response.getBody();
-            List<QuoteDTO> result = Arrays.asList(quotes != null ? quotes : new QuoteDTO[0]);
-            
-            log.info("Successfully retrieved {} quotes with limit={}, offset={}", result.size(), queryLimit, queryOffset);
-            return result;
-            
-        } catch (org.springframework.web.client.HttpClientErrorException | 
-                 org.springframework.web.client.HttpServerErrorException e) {
-            log.error("Error calling TMForum API with limit={}, offset={}: {} - Response: {}", 
-                    queryLimit, queryOffset, e.getMessage(), e.getResponseBodyAsString(), e);
-            throw new QuoteManagementException(
-                "Error retrieving quotes from TMF API: " + e.getMessage(),
-                HttpStatus.INTERNAL_SERVER_ERROR
-            );
-        } catch (Exception e) {
-            log.error("Unexpected error calling TMForum API with limit={}, offset={}: {}", 
-                    queryLimit, queryOffset, e.getMessage(), e);
-            throw new QuoteManagementException(
-                "Unexpected error retrieving quotes: " + e.getMessage(),
-                HttpStatus.INTERNAL_SERVER_ERROR
-            );
-        }
-    }
-    
-    @Override
     public List<QuoteDTO> findQuotesByUser(String userId, String role) {
         // Extract base URL without query parameters
         String listEndpoint = appConfig.getTmforumQuoteListEndpoint();
