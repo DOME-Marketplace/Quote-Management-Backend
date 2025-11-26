@@ -6,8 +6,8 @@ package com.dome.quotemanagement.enums;
  */
 public class QuoteRole {
     
-    public static final String CUSTOMER = "buyer";
-    public static final String SELLER = "seller";
+    public static final String CUSTOMER = "Buyer";
+    public static final String SELLER = "Seller";
     public static final String BUYER_OPERATOR = "BuyerOperator";
     public static final String SELLER_OPERATOR = "SellerOperator";
     

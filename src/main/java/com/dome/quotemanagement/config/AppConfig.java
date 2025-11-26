@@ -35,6 +35,9 @@ public class AppConfig {
     @Value("${tmforum.api.quote-list-endpoint:/productCatalogManagement/v4/productOffering}")
     private String tmforumProductCatalogManagementEndpoint;
     
+    @Value("${tmforum.api.organization-endpoint:/party/v4/organization}")
+    private String tmforumOrganizationEndpoint;
+    
     @Value("${notification.api.endpoint:/charging/api/orderManagement/notify}")
     private String notificationEndpoint;
     
@@ -60,6 +63,10 @@ public class AppConfig {
     
     public String getTmforumProductCatalogManagementEndpoint() {
         return tmforumProductCatalogManagementEndpoint;
+    }
+    
+    public String getTmforumOrganizationEndpoint() {
+        return tmforumOrganizationEndpoint;
     }
     
     @Autowired

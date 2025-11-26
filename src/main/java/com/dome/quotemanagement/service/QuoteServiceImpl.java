@@ -1309,15 +1309,22 @@ public class QuoteServiceImpl implements QuoteService {
                 customerParty.put("id", customerIdRef);
                 customerParty.put("href", customerIdRef);
                 customerParty.put("role", QuoteRole.CUSTOMER);
-                customerParty.put("name", customerIdRef);
-                customerParty.put("@referredType", "individual");
+                String customerName = resolveOrganizationName(customerIdRef)
+                    .orElse(customerIdRef); // Fallback to ID if not found
+                customerParty.put("name", customerName);
+                customerParty.put("@referredType", "organization");
                 relatedPartyArray.add(customerParty);
 
+                // BuyerOperator - retrieve name from organization
+                String buyerOperatorId = appConfig.getDidIdentifier();
+                String buyerOperatorName = resolveOrganizationName(buyerOperatorId)
+                    .orElse(buyerOperatorId); // Fallback to ID if not found
+                
                 ObjectNode buyerOperator = objectMapper.createObjectNode();
-                buyerOperator.put("id", appConfig.getDidIdentifier());
-                buyerOperator.put("href", appConfig.getDidIdentifier());
+                buyerOperator.put("id", buyerOperatorId);
+                buyerOperator.put("href", buyerOperatorId);
                 buyerOperator.put("role", QuoteRole.BUYER_OPERATOR);
-                buyerOperator.put("name", appConfig.getDidIdentifier());
+                buyerOperator.put("name", buyerOperatorName);
                 buyerOperator.put("@referredType", "organization");
                 relatedPartyArray.add(buyerOperator);
             }
@@ -1372,7 +1379,9 @@ public class QuoteServiceImpl implements QuoteService {
                 providerParty.put("id", providerIdRef);
                 providerParty.put("href", providerIdRef);
                 providerParty.put("role", QuoteRole.SELLER);
-                providerParty.put("name", providerIdRef);
+                String providerName = resolveOrganizationName(providerIdRef)
+                    .orElse(providerIdRef); // Fallback to ID if not found
+                providerParty.put("name", providerName);
                 providerParty.put("@referredType", "organization");
                 relatedPartyArray.add(providerParty);
             }
@@ -1381,11 +1390,15 @@ public class QuoteServiceImpl implements QuoteService {
             String sellerOperatorId = resolveSellerOperatorIdFromProductOffering(productOfferingId)
                 .orElse(appConfig.getDidIdentifier());
 
+            // Retrieve SellerOperator name from organization
+            String sellerOperatorName = resolveOrganizationName(sellerOperatorId)
+                .orElse(sellerOperatorId); // Fallback to ID if not found
+
             ObjectNode sellerOperator = objectMapper.createObjectNode();
             sellerOperator.put("id", sellerOperatorId);
             sellerOperator.put("href", sellerOperatorId);
             sellerOperator.put("role", QuoteRole.SELLER_OPERATOR);
-            sellerOperator.put("name", sellerOperatorId);
+            sellerOperator.put("name", sellerOperatorName);
             sellerOperator.put("@referredType", "organization");
             relatedPartyArray.add(sellerOperator);
             log.info("Added SellerOperator to quote-level relatedParty array with ID: {} (source: {})",
@@ -1399,15 +1412,22 @@ public class QuoteServiceImpl implements QuoteService {
                 customerParty.put("id", customerIdRef);
                 customerParty.put("href", customerIdRef);
                 customerParty.put("role", QuoteRole.CUSTOMER);
-                customerParty.put("name", customerIdRef);
-                customerParty.put("@referredType", "individual");
+                String customerName = resolveOrganizationName(customerIdRef)
+                    .orElse(customerIdRef); // Fallback to ID if not found
+                customerParty.put("name", customerName);
+                customerParty.put("@referredType", "organization");
                 relatedPartyArray.add(customerParty);
 
+                // BuyerOperator - retrieve name from organization
+                String buyerOperatorId = appConfig.getDidIdentifier();
+                String buyerOperatorName = resolveOrganizationName(buyerOperatorId)
+                    .orElse(buyerOperatorId); // Fallback to ID if not found
+                
                 ObjectNode buyerOperator = objectMapper.createObjectNode();
-                buyerOperator.put("id", appConfig.getDidIdentifier());
-                buyerOperator.put("href", appConfig.getDidIdentifier());
+                buyerOperator.put("id", buyerOperatorId);
+                buyerOperator.put("href", buyerOperatorId);
                 buyerOperator.put("role", QuoteRole.BUYER_OPERATOR);
-                buyerOperator.put("name", appConfig.getDidIdentifier());
+                buyerOperator.put("name", buyerOperatorName);
                 buyerOperator.put("@referredType", "organization");
                 relatedPartyArray.add(buyerOperator);
             }
@@ -1729,6 +1749,61 @@ public class QuoteServiceImpl implements QuoteService {
             return Optional.empty();
         } catch (Exception e) {
             log.warn("Failed to resolve SellerOperator from ProductOffering {}: {}", productOfferingId, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Resolve organization name from externalReference.name by calling the Organization API
+     * @param organizationId the organization ID to look up
+     * @return Optional containing the name from externalReference.name, or empty if not found
+     */
+    private Optional<String> resolveOrganizationName(String organizationId) {
+        try {
+            if (organizationId == null || organizationId.trim().isEmpty()) {
+                return Optional.empty();
+            }
+
+            String base = tmforumBaseUrl.trim();
+            String orgEndpoint = appConfig.getTmforumOrganizationEndpoint();
+            String url = (base + orgEndpoint).replaceAll("/+$", "") + "/" + organizationId.trim();
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+            HttpEntity<?> request = new HttpEntity<>(headers);
+
+            ResponseEntity<String> response = restTemplate.exchange(
+                url,
+                HttpMethod.GET,
+                request,
+                String.class
+            );
+
+            String body = response.getBody();
+            if (body == null || body.isEmpty()) {
+                log.warn("Empty Organization response for id {}", organizationId);
+                return Optional.empty();
+            }
+
+            JsonNode root = objectMapper.readTree(body);
+            JsonNode externalReferences = root.get("externalReference");
+            
+            if (externalReferences != null && externalReferences.isArray()) {
+                for (JsonNode extRef : externalReferences) {
+                    if (extRef.hasNonNull("name")) {
+                        String name = extRef.get("name").asText();
+                        if (name != null && !name.trim().isEmpty()) {
+                            log.info("Found organization name '{}' for id {}", name, organizationId);
+                            return Optional.of(name.trim());
+                        }
+                    }
+                }
+            }
+
+            log.warn("externalReference.name not found in Organization for id {}", organizationId);
+            return Optional.empty();
+        } catch (Exception e) {
+            log.warn("Failed to resolve organization name for id {}: {}", organizationId, e.getMessage());
             return Optional.empty();
         }
     }
