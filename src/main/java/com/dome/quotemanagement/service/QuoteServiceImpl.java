@@ -1309,12 +1309,10 @@ public class QuoteServiceImpl implements QuoteService {
                 customerParty.put("id", customerIdRef);
                 customerParty.put("href", customerIdRef);
                 customerParty.put("role", QuoteRole.CUSTOMER);
-                String customerName = resolveOrganizationName(customerIdRef);
-                customerParty.put("name", customerName);
+                customerParty.put("name", customerIdRef);
                 customerParty.put("@referredType", "organization");
                 relatedPartyArray.add(customerParty);
 
-                // BuyerOperator - use ID as name (as before)
                 String buyerOperatorId = appConfig.getDidIdentifier();
                 
                 ObjectNode buyerOperator = objectMapper.createObjectNode();
@@ -1376,8 +1374,7 @@ public class QuoteServiceImpl implements QuoteService {
                 providerParty.put("id", providerIdRef);
                 providerParty.put("href", providerIdRef);
                 providerParty.put("role", QuoteRole.SELLER);
-                String providerName = resolveOrganizationName(providerIdRef);
-                providerParty.put("name", providerName);
+                providerParty.put("name", providerIdRef);
                 providerParty.put("@referredType", "organization");
                 relatedPartyArray.add(providerParty);
             }
@@ -1404,8 +1401,7 @@ public class QuoteServiceImpl implements QuoteService {
                 customerParty.put("id", customerIdRef);
                 customerParty.put("href", customerIdRef);
                 customerParty.put("role", QuoteRole.CUSTOMER);
-                String customerName = resolveOrganizationName(customerIdRef);
-                customerParty.put("name", customerName);
+                customerParty.put("name", customerIdRef);
                 customerParty.put("@referredType", "organization");
                 relatedPartyArray.add(customerParty);
 
@@ -1747,6 +1743,7 @@ public class QuoteServiceImpl implements QuoteService {
      * @return the name from externalReference.name
      * @throws QuoteManagementException if the organization is not found or the name cannot be resolved
      */
+    /*
     private String resolveOrganizationName(String organizationId) {
         try {
             if (organizationId == null || organizationId.trim().isEmpty()) {
@@ -1808,6 +1805,7 @@ public class QuoteServiceImpl implements QuoteService {
             );
         }
     }
+    */
 
     private void writeLogToFile(String content) {
         try {
