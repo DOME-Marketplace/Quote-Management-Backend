@@ -1314,15 +1314,14 @@ public class QuoteServiceImpl implements QuoteService {
                 customerParty.put("@referredType", "organization");
                 relatedPartyArray.add(customerParty);
 
-                // BuyerOperator - retrieve name from organization
+                // BuyerOperator - use ID as name (as before)
                 String buyerOperatorId = appConfig.getDidIdentifier();
-                String buyerOperatorName = resolveOrganizationName(buyerOperatorId);
                 
                 ObjectNode buyerOperator = objectMapper.createObjectNode();
                 buyerOperator.put("id", buyerOperatorId);
                 buyerOperator.put("href", buyerOperatorId);
                 buyerOperator.put("role", QuoteRole.BUYER_OPERATOR);
-                buyerOperator.put("name", buyerOperatorName);
+                buyerOperator.put("name", buyerOperatorId);
                 buyerOperator.put("@referredType", "organization");
                 relatedPartyArray.add(buyerOperator);
             }
@@ -1387,14 +1386,11 @@ public class QuoteServiceImpl implements QuoteService {
             String sellerOperatorId = resolveSellerOperatorIdFromProductOffering(productOfferingId)
                 .orElse(appConfig.getDidIdentifier());
 
-            // Retrieve SellerOperator name from organization
-            String sellerOperatorName = resolveOrganizationName(sellerOperatorId);
-
             ObjectNode sellerOperator = objectMapper.createObjectNode();
             sellerOperator.put("id", sellerOperatorId);
             sellerOperator.put("href", sellerOperatorId);
             sellerOperator.put("role", QuoteRole.SELLER_OPERATOR);
-            sellerOperator.put("name", sellerOperatorName);
+            sellerOperator.put("name", sellerOperatorId);
             sellerOperator.put("@referredType", "organization");
             relatedPartyArray.add(sellerOperator);
             log.info("Added SellerOperator to quote-level relatedParty array with ID: {} (source: {})",
@@ -1413,15 +1409,13 @@ public class QuoteServiceImpl implements QuoteService {
                 customerParty.put("@referredType", "organization");
                 relatedPartyArray.add(customerParty);
 
-                // BuyerOperator - retrieve name from organization
                 String buyerOperatorId = appConfig.getDidIdentifier();
-                String buyerOperatorName = resolveOrganizationName(buyerOperatorId);
                 
                 ObjectNode buyerOperator = objectMapper.createObjectNode();
                 buyerOperator.put("id", buyerOperatorId);
                 buyerOperator.put("href", buyerOperatorId);
                 buyerOperator.put("role", QuoteRole.BUYER_OPERATOR);
-                buyerOperator.put("name", buyerOperatorName);
+                buyerOperator.put("name", buyerOperatorId);
                 buyerOperator.put("@referredType", "organization");
                 relatedPartyArray.add(buyerOperator);
             }
