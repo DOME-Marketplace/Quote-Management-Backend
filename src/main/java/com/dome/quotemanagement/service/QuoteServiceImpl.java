@@ -1793,7 +1793,7 @@ public class QuoteServiceImpl implements QuoteService {
                     if (extRef.hasNonNull("name")) {
                         String name = extRef.get("name").asText();
                         if (name != null && !name.trim().isEmpty()) {
-                            log.info("Found organization name '{}' for id {}", name, organizationId);
+                            log.info("Found organization name '{}' from externalReference for id {}", name, organizationId);
                             return name.trim();
                         }
                     }

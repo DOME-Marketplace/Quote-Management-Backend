@@ -32,7 +32,7 @@ public class AppConfig {
     @Value("${tmforum.api.quote-list-endpoint:/quote/v4/quote?limit=1000}")
     private String tmforumQuoteListEndpoint;
 
-    @Value("${tmforum.api.quote-list-endpoint:/productCatalogManagement/v4/productOffering}")
+    @Value("${tmforum.api.product-offering-endpoint:/productCatalogManagement/v4/productOffering}")
     private String tmforumProductCatalogManagementEndpoint;
     
     @Value("${tmforum.api.organization-endpoint:/party/v4/organization}")
