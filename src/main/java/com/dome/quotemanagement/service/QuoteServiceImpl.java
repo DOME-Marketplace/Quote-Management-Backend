@@ -1309,16 +1309,14 @@ public class QuoteServiceImpl implements QuoteService {
                 customerParty.put("id", customerIdRef);
                 customerParty.put("href", customerIdRef);
                 customerParty.put("role", QuoteRole.CUSTOMER);
-                String customerName = resolveOrganizationName(customerIdRef)
-                    .orElse(customerIdRef); // Fallback to ID if not found
+                String customerName = resolveOrganizationName(customerIdRef);
                 customerParty.put("name", customerName);
                 customerParty.put("@referredType", "organization");
                 relatedPartyArray.add(customerParty);
 
                 // BuyerOperator - retrieve name from organization
                 String buyerOperatorId = appConfig.getDidIdentifier();
-                String buyerOperatorName = resolveOrganizationName(buyerOperatorId)
-                    .orElse(buyerOperatorId); // Fallback to ID if not found
+                String buyerOperatorName = resolveOrganizationName(buyerOperatorId);
                 
                 ObjectNode buyerOperator = objectMapper.createObjectNode();
                 buyerOperator.put("id", buyerOperatorId);
@@ -1379,8 +1377,7 @@ public class QuoteServiceImpl implements QuoteService {
                 providerParty.put("id", providerIdRef);
                 providerParty.put("href", providerIdRef);
                 providerParty.put("role", QuoteRole.SELLER);
-                String providerName = resolveOrganizationName(providerIdRef)
-                    .orElse(providerIdRef); // Fallback to ID if not found
+                String providerName = resolveOrganizationName(providerIdRef);
                 providerParty.put("name", providerName);
                 providerParty.put("@referredType", "organization");
                 relatedPartyArray.add(providerParty);
@@ -1391,8 +1388,7 @@ public class QuoteServiceImpl implements QuoteService {
                 .orElse(appConfig.getDidIdentifier());
 
             // Retrieve SellerOperator name from organization
-            String sellerOperatorName = resolveOrganizationName(sellerOperatorId)
-                .orElse(sellerOperatorId); // Fallback to ID if not found
+            String sellerOperatorName = resolveOrganizationName(sellerOperatorId);
 
             ObjectNode sellerOperator = objectMapper.createObjectNode();
             sellerOperator.put("id", sellerOperatorId);
@@ -1412,16 +1408,14 @@ public class QuoteServiceImpl implements QuoteService {
                 customerParty.put("id", customerIdRef);
                 customerParty.put("href", customerIdRef);
                 customerParty.put("role", QuoteRole.CUSTOMER);
-                String customerName = resolveOrganizationName(customerIdRef)
-                    .orElse(customerIdRef); // Fallback to ID if not found
+                String customerName = resolveOrganizationName(customerIdRef);
                 customerParty.put("name", customerName);
                 customerParty.put("@referredType", "organization");
                 relatedPartyArray.add(customerParty);
 
                 // BuyerOperator - retrieve name from organization
                 String buyerOperatorId = appConfig.getDidIdentifier();
-                String buyerOperatorName = resolveOrganizationName(buyerOperatorId)
-                    .orElse(buyerOperatorId); // Fallback to ID if not found
+                String buyerOperatorName = resolveOrganizationName(buyerOperatorId);
                 
                 ObjectNode buyerOperator = objectMapper.createObjectNode();
                 buyerOperator.put("id", buyerOperatorId);
@@ -1756,12 +1750,16 @@ public class QuoteServiceImpl implements QuoteService {
     /**
      * Resolve organization name from externalReference.name by calling the Organization API
      * @param organizationId the organization ID to look up
-     * @return Optional containing the name from externalReference.name, or empty if not found
+     * @return the name from externalReference.name
+     * @throws QuoteManagementException if the organization is not found or the name cannot be resolved
      */
-    private Optional<String> resolveOrganizationName(String organizationId) {
+    private String resolveOrganizationName(String organizationId) {
         try {
             if (organizationId == null || organizationId.trim().isEmpty()) {
-                return Optional.empty();
+                throw new QuoteManagementException(
+                    "Organization ID cannot be null or empty",
+                    HttpStatus.BAD_REQUEST
+                );
             }
 
             String base = tmforumBaseUrl.trim();
@@ -1781,8 +1779,10 @@ public class QuoteServiceImpl implements QuoteService {
 
             String body = response.getBody();
             if (body == null || body.isEmpty()) {
-                log.warn("Empty Organization response for id {}", organizationId);
-                return Optional.empty();
+                throw new QuoteManagementException(
+                    "Organization not found or empty response for id: " + organizationId,
+                    HttpStatus.NOT_FOUND
+                );
             }
 
             JsonNode root = objectMapper.readTree(body);
@@ -1794,17 +1794,24 @@ public class QuoteServiceImpl implements QuoteService {
                         String name = extRef.get("name").asText();
                         if (name != null && !name.trim().isEmpty()) {
                             log.info("Found organization name '{}' for id {}", name, organizationId);
-                            return Optional.of(name.trim());
+                            return name.trim();
                         }
                     }
                 }
             }
 
-            log.warn("externalReference.name not found in Organization for id {}", organizationId);
-            return Optional.empty();
+            throw new QuoteManagementException(
+                "externalReference.name not found in Organization for id: " + organizationId,
+                HttpStatus.NOT_FOUND
+            );
+        } catch (QuoteManagementException e) {
+            throw e; // Re-throw our custom exceptions
         } catch (Exception e) {
-            log.warn("Failed to resolve organization name for id {}: {}", organizationId, e.getMessage());
-            return Optional.empty();
+            throw new QuoteManagementException(
+                "Failed to resolve organization name for id " + organizationId + ": " + e.getMessage(),
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                e
+            );
         }
     }
 
