@@ -44,9 +44,6 @@ public class QuoteServiceImpl implements QuoteService {
     private final NotificationService notificationService;
     private final AppConfig appConfig;
     
-    @Value("${tmforum.api.base-url}")
-    private String tmforumBaseUrl;
-    
     @Value("${attachment.verification.enabled:true}")
     private boolean attachmentVerificationEnabled;
     
@@ -67,7 +64,7 @@ public class QuoteServiceImpl implements QuoteService {
         int offset = 0;
         List<QuoteDTO> allQuotes = new java.util.ArrayList<>();
         
-        String baseUrl = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteEndpoint();
+        String baseUrl = appConfig.getQuoteServiceUrl();
         log.debug("Calling external TMForum API to get all quotes with pagination: {}", baseUrl);
         
         try {
@@ -309,7 +306,7 @@ public class QuoteServiceImpl implements QuoteService {
     public List<QuoteDTO> findQuotesByUser(String userId, String role) {
         // Extract base URL without query parameters
         String listEndpoint = appConfig.getTmforumQuoteListEndpoint();
-        String baseUrl = tmforumBaseUrl.trim() + listEndpoint.split("\\?")[0]; // Remove existing query params
+        String baseUrl = appConfig.getQuoteServiceBaseUrl().trim() + listEndpoint.split("\\?")[0]; // Remove existing query params
         log.debug("Base TMForum list API: {}", baseUrl);
         log.debug("Find tailored quotes parameters - userId: '{}', role: '{}'", userId, role);
 
@@ -377,7 +374,7 @@ public class QuoteServiceImpl implements QuoteService {
     public List<QuoteDTO> findTenderingQuotesByUser(String userId, String role, String externalId) {
         // Extract base URL without query parameters
         String listEndpoint = appConfig.getTmforumQuoteListEndpoint();
-        String baseUrl = tmforumBaseUrl.trim() + listEndpoint.split("\\?")[0]; // Remove existing query params
+        String baseUrl = appConfig.getQuoteServiceBaseUrl().trim() + listEndpoint.split("\\?")[0]; // Remove existing query params
         log.debug("Base TMForum list API: {}", baseUrl);
         log.debug("Find tendering quotes parameters - userId: '{}', role: '{}', externalId: '{}'", userId, role, externalId);
 
@@ -459,7 +456,7 @@ public class QuoteServiceImpl implements QuoteService {
     public List<QuoteDTO> findCoordinatorQuotesByUser(String userId) {
         // Extract base URL without query parameters
         String listEndpoint = appConfig.getTmforumQuoteListEndpoint();
-        String baseUrl = tmforumBaseUrl.trim() + listEndpoint.split("\\?")[0]; // Remove existing query params
+        String baseUrl = appConfig.getQuoteServiceBaseUrl().trim() + listEndpoint.split("\\?")[0]; // Remove existing query params
         log.debug("Base TMForum list API: {}", baseUrl);
         log.debug("Find coordinator quotes parameters - userId: '{}'", userId);
 
@@ -505,7 +502,7 @@ public class QuoteServiceImpl implements QuoteService {
     
     @Override
     public Optional<QuoteDTO> findById(String id) {
-        String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteEndpoint() + "/" + id;
+        String url = appConfig.getQuoteServiceUrl() + "/" + id;
         log.debug("Calling external TMForum API: {}", url);
         try {
             HttpHeaders headers = new HttpHeaders();
@@ -554,7 +551,7 @@ public class QuoteServiceImpl implements QuoteService {
     }
     
     private QuoteDTO createInternal(String customerMessage, String customerIdRef, String providerIdRef, String productOfferingId, String category, String externalId) {
-        String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteEndpoint();
+        String url = appConfig.getQuoteServiceUrl();
         log.debug("Calling external TMForum API: {}", url);
         log.debug("Create quote parameters - customerMessage: '{}', customerIdRef: '{}', providerIdRef: '{}', productOfferingId: '{}', category: '{}', externalId: '{}'", 
                   customerMessage, customerIdRef, providerIdRef, productOfferingId, category, externalId);
@@ -633,7 +630,7 @@ public class QuoteServiceImpl implements QuoteService {
         log.debug("Creating coordinator quote with parameters - customerMessage: '{}', customerIdRef: '{}'", 
                   customerMessage, customerIdRef);
         
-        String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteEndpoint();
+        String url = appConfig.getQuoteServiceUrl();
         log.debug("Calling external TMForum API for coordinator quote: {}", url);
         
         try {
@@ -681,7 +678,7 @@ public class QuoteServiceImpl implements QuoteService {
             // Create a minimal update payload with just the status change at quoteItem level
             String jsonPayload = buildStatusUpdateJson(statusValue, currentQuote);
             
-            String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteEndpoint() + "/" + quoteId;
+            String url = appConfig.getQuoteServiceUrl() + "/" + quoteId;
             
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -732,7 +729,7 @@ public class QuoteServiceImpl implements QuoteService {
             // Create a minimal update payload with the new note appended to existing ones
             String jsonPayload = buildNoteUpdateJson(messageContent, userId, currentQuote);
             
-            String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteEndpoint() + "/" + quoteId;
+            String url = appConfig.getQuoteServiceUrl() + "/" + quoteId;
             
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -804,7 +801,7 @@ public class QuoteServiceImpl implements QuoteService {
             // Create a minimal update payload with the new attachment
             String jsonPayload = buildAttachmentUpdateJson(attachment, currentQuote);
             
-            String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteEndpoint() + "/" + quoteId;
+            String url = appConfig.getQuoteServiceUrl() + "/" + quoteId;
             
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -916,7 +913,7 @@ public class QuoteServiceImpl implements QuoteService {
             // Create a minimal update payload with the converted date
             String jsonPayload = buildDateUpdateJson(isoDate, dateType);
             
-            String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteEndpoint() + "/" + quoteId;
+            String url = appConfig.getQuoteServiceUrl() + "/" + quoteId;
             
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -946,7 +943,7 @@ public class QuoteServiceImpl implements QuoteService {
     
     @Override
     public void delete(String id) {
-        String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteEndpoint() + "/" + id;
+        String url = appConfig.getQuoteServiceUrl() + "/" + id;
         log.debug("Calling external TMForum API: {}", url);
         try {
             HttpHeaders headers = new HttpHeaders();
@@ -1694,9 +1691,7 @@ public class QuoteServiceImpl implements QuoteService {
                 return Optional.empty();
             }
 
-            String base = tmforumBaseUrl.trim();
-            String poEndpoint = appConfig.getTmforumProductCatalogManagementEndpoint();
-            String url = (base + poEndpoint).replaceAll("/+$", "") + "/" + productOfferingId.trim();
+            String url = appConfig.getProductServiceUrl().replaceAll("/+$", "") + "/" + productOfferingId.trim();
 
             HttpHeaders headers = new HttpHeaders();
             headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
@@ -1753,9 +1748,7 @@ public class QuoteServiceImpl implements QuoteService {
                 );
             }
 
-            String base = tmforumBaseUrl.trim();
-            String orgEndpoint = appConfig.getTmforumOrganizationEndpoint();
-            String url = (base + orgEndpoint).replaceAll("/+$", "") + "/" + organizationId.trim();
+            String url = appConfig.getPartyServiceUrl().replaceAll("/+$", "") + "/" + organizationId.trim();
 
             HttpHeaders headers = new HttpHeaders();
             headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));

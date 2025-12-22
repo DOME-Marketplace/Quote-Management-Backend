@@ -72,9 +72,12 @@ public class RestTemplateLoggingInterceptor implements ClientHttpRequestIntercep
         log.info("{}", formattedRequest);
         
         // Log request headers (selective)
-        log.debug("[HEADERS] Request Headers: Content-Type={}, Accept={}", 
+        String authHeader = request.getHeaders().getFirst("Authorization");
+        String authStatus = authHeader != null ? "[PROVIDED]" : "[MISSING]";
+        log.debug("[HEADERS] Request Headers: Content-Type={}, Accept={}, Authorization={}", 
                 request.getHeaders().getFirst("Content-Type"),
-                request.getHeaders().getFirst("Accept"));
+                request.getHeaders().getFirst("Accept"),
+                authStatus);
         
         // Log request body for operations that have a body
         if (body != null && body.length > 0) {

@@ -2,7 +2,6 @@ package com.dome.quotemanagement.service;
 
 import com.dome.quotemanagement.config.AppConfig;
 import com.dome.quotemanagement.dto.tmforum.QuoteDTO;
-import com.dome.quotemanagement.dto.tmforum.QuoteItemDTO;
 import com.dome.quotemanagement.dto.tmforum.NoteDTO;
 import com.dome.quotemanagement.dto.NotificationRequestDTO;
 import com.dome.quotemanagement.enums.QuoteRole;
@@ -11,7 +10,6 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -33,15 +31,12 @@ public class QuoteExpirationScheduler {
     private final NotificationService notificationService;
     private final AppConfig appConfig;
 
-    @Value("${tmforum.api.base-url}")
-    private String tmforumBaseUrl;
-
     @Scheduled(cron = "0 0 0 * * ?") // Run at midnight every day
     public void checkExpiredQuotes() {
         log.info("Starting scheduled check for expired quotes");
         try {
             // Get all quotes
-            String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteListEndpoint();
+            String url = appConfig.getQuoteServiceListUrl();
             QuoteDTO[] quotes = restTemplate.getForObject(url, QuoteDTO[].class);
             List<QuoteDTO> allQuotes = Arrays.asList(quotes != null ? quotes : new QuoteDTO[0]);
 
@@ -61,7 +56,7 @@ public class QuoteExpirationScheduler {
         log.info("Starting scheduled check for coordinator tender status updates");
         try {
             // Get all quotes
-            String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteListEndpoint();
+            String url = appConfig.getQuoteServiceListUrl();
             QuoteDTO[] quotes = restTemplate.getForObject(url, QuoteDTO[].class);
             List<QuoteDTO> allQuotes = Arrays.asList(quotes != null ? quotes : new QuoteDTO[0]);
 
@@ -120,7 +115,7 @@ public class QuoteExpirationScheduler {
 
     private void updateTenderQuoteStatus(QuoteDTO quote, String newStatus, String noteMessage) {
         try {
-            String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteEndpoint() + "/" + quote.getId();
+            String url = appConfig.getQuoteServiceUrl() + "/" + quote.getId();
             
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -205,7 +200,7 @@ public class QuoteExpirationScheduler {
         log.info("Handling expired quote: {}", quote.getId());
         try {
             // Update quote status to cancelled
-            String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteEndpoint() + "/" + quote.getId();
+            String url = appConfig.getQuoteServiceUrl() + "/" + quote.getId();
             
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -218,7 +213,7 @@ public class QuoteExpirationScheduler {
             restTemplate.exchange(url, org.springframework.http.HttpMethod.PATCH, request, QuoteDTO.class);
 
             // Add note about expiration
-            String noteUrl = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteEndpoint() + "/" + quote.getId();
+            String noteUrl = appConfig.getQuoteServiceUrl() + "/" + quote.getId();
             String notePayload = buildNoteUpdateJson(
                 "Quote automatically cancelled due to expiration of requested completion date.",
                 "SYSTEM",

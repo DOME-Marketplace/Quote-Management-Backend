@@ -17,6 +17,8 @@ import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.net.ssl.*;
 import java.time.Duration;
@@ -26,16 +28,29 @@ import java.util.Collections;
 @Configuration
 public class AppConfig {
     
-    @Value("${tmforum.api.quote-endpoint:/quote/v4/quote}")
+    private static final Logger log = LoggerFactory.getLogger(AppConfig.class);
+    
+    // Service-specific base URLs (NEW - each service on different port)
+    @Value("${tmforum.api.quote.base-url}")
+    private String quoteServiceBaseUrl;
+    
+    @Value("${tmforum.api.product.base-url}")
+    private String productServiceBaseUrl;
+    
+    @Value("${tmforum.api.party.base-url}")
+    private String partyServiceBaseUrl;
+    
+    // Service-specific endpoints
+    @Value("${tmforum.api.quote.endpoint:/quoteManagement/v4/quote}")
     private String tmforumQuoteEndpoint;
     
-    @Value("${tmforum.api.quote-list-endpoint:/quote/v4/quote?limit=1000}")
+    @Value("${tmforum.api.quote.list-endpoint:/quoteManagement/v4/quote?limit=1000}")
     private String tmforumQuoteListEndpoint;
 
-    @Value("${tmforum.api.product-offering-endpoint:/productCatalogManagement/v4/productOffering}")
+    @Value("${tmforum.api.product.offering-endpoint:/productCatalogManagement/v4/productOffering}")
     private String tmforumProductCatalogManagementEndpoint;
     
-    @Value("${tmforum.api.organization-endpoint:/party/v4/organization}")
+    @Value("${tmforum.api.party.organization-endpoint:/party/v4/organization}")
     private String tmforumOrganizationEndpoint;
     
     @Value("${notification.api.endpoint:/charging/api/orderManagement/notify}")
@@ -44,7 +59,23 @@ public class AppConfig {
     @Value("${did.identifier:did:elsi:VATES-11111111P}")
     private String didIdentifier;
     
-    // Public getters to maintain backward compatibility
+    @Value("${tmforum.api.bearer-token:}")
+    private String tmforumBearerToken;
+    
+    // Public getters for service-specific base URLs
+    public String getQuoteServiceBaseUrl() {
+        return quoteServiceBaseUrl;
+    }
+    
+    public String getProductServiceBaseUrl() {
+        return productServiceBaseUrl;
+    }
+    
+    public String getPartyServiceBaseUrl() {
+        return partyServiceBaseUrl;
+    }
+    
+    // Public getters for endpoints
     public String getTmforumQuoteEndpoint() {
         return tmforumQuoteEndpoint;
     }
@@ -69,6 +100,23 @@ public class AppConfig {
         return tmforumOrganizationEndpoint;
     }
     
+    // Helper methods to build complete URLs
+    public String getQuoteServiceUrl() {
+        return quoteServiceBaseUrl.trim() + tmforumQuoteEndpoint;
+    }
+    
+    public String getQuoteServiceListUrl() {
+        return quoteServiceBaseUrl.trim() + tmforumQuoteListEndpoint;
+    }
+    
+    public String getProductServiceUrl() {
+        return productServiceBaseUrl.trim() + tmforumProductCatalogManagementEndpoint;
+    }
+    
+    public String getPartyServiceUrl() {
+        return partyServiceBaseUrl.trim() + tmforumOrganizationEndpoint;
+    }
+    
     @Autowired
     private RestTemplateLoggingInterceptor restTemplateLoggingInterceptor;
 
@@ -77,6 +125,13 @@ public class AppConfig {
 
     @Bean
     public RestTemplate restTemplate(RestTemplateBuilder builder) {
+        // Log bearer token configuration status
+        if (tmforumBearerToken != null && !tmforumBearerToken.trim().isEmpty()) {
+            log.info("TMForum Bearer Token configured (length: {} chars)", tmforumBearerToken.length());
+        } else {
+            log.warn("TMForum Bearer Token is NOT configured!");
+        }
+        
         RestTemplate restTemplate = builder
                 .setConnectTimeout(Duration.ofSeconds(30))
                 .setReadTimeout(Duration.ofSeconds(60))
@@ -98,12 +153,12 @@ public class AppConfig {
                                 .build())
                     .setMaxConnTotal(100) // Maximum total connections
                     .setMaxConnPerRoute(20) // Maximum connections per route
-                    .setValidateAfterInactivity(TimeValue.ofSeconds(30)) // Validate connections after inactivity
                     .build();
             
             CloseableHttpClient httpClient = HttpClients.custom()
                     .setConnectionManager(connectionManager)
-                    .setKeepAliveStrategy((response, context) -> TimeValue.ofSeconds(60)) // Keep-alive duration
+                    .evictIdleConnections(TimeValue.ofSeconds(30)) // Evict idle connections
+                    .evictExpiredConnections() // Evict expired connections
                     .build();
             
             // Use Apache HttpClient5 instead of default SimpleClientHttpRequestFactory
@@ -121,10 +176,9 @@ public class AppConfig {
         }
         
         // Add interceptor to set default headers for all requests
+        // IMPORTANT: Order matters! Headers must be set BEFORE logging
         restTemplate.setInterceptors(Arrays.asList(
-            // Add our logging interceptor first
-            restTemplateLoggingInterceptor,
-            // Then add the default headers interceptor
+            // Add the default headers interceptor FIRST
             (request, body, execution) -> {
                 HttpHeaders headers = request.getHeaders();
                 
@@ -140,8 +194,20 @@ public class AppConfig {
                     }
                 }
                 
+                // Add Authorization header if Bearer token is configured
+                if (tmforumBearerToken != null && !tmforumBearerToken.trim().isEmpty()) {
+                    if (!headers.containsKey(HttpHeaders.AUTHORIZATION)) {
+                        headers.setBearerAuth(tmforumBearerToken.trim());
+                        log.debug("Added Authorization Bearer token to request");
+                    }
+                } else {
+                    log.debug("No Bearer token configured, skipping Authorization header");
+                }
+                
                 return execution.execute(request, body);
-            }
+            },
+            // Add our logging interceptor LAST (so it logs the final headers)
+            restTemplateLoggingInterceptor
         ));
         
         return restTemplate;
