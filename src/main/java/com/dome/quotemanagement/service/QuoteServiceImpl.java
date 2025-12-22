@@ -989,6 +989,28 @@ public class QuoteServiceImpl implements QuoteService {
                         quoteItemJson.put("quantity", quoteItem.getQuantity());
                     }
                     
+                    // CRITICAL: Preserve productOffering information to maintain product reference
+                    if (quoteItem.getProductOffering() != null) {
+                        ObjectNode productOfferingObject = objectMapper.createObjectNode();
+                        if (quoteItem.getProductOffering().getId() != null) {
+                            productOfferingObject.put("id", quoteItem.getProductOffering().getId());
+                        }
+                        if (quoteItem.getProductOffering().getHref() != null) {
+                            productOfferingObject.put("href", quoteItem.getProductOffering().getHref());
+                        }
+                        if (quoteItem.getProductOffering().getName() != null) {
+                            productOfferingObject.put("name", quoteItem.getProductOffering().getName());
+                        }
+                        if (quoteItem.getProductOffering().getType() != null) {
+                            productOfferingObject.put("@type", quoteItem.getProductOffering().getType());
+                        }
+                        if (quoteItem.getProductOffering().getReferredType() != null) {
+                            productOfferingObject.put("@referredType", quoteItem.getProductOffering().getReferredType());
+                        }
+                        quoteItemJson.set("productOffering", productOfferingObject);
+                        log.debug("Preserved productOffering {} for quote item", quoteItem.getProductOffering().getId());
+                    }
+                    
                     // CRITICAL: Preserve relatedParty information to maintain customer filtering
                     if (quoteItem.getRelatedParty() != null && !quoteItem.getRelatedParty().isEmpty()) {
                         ArrayNode relatedPartyArray = objectMapper.createArrayNode();
@@ -1148,6 +1170,28 @@ public class QuoteServiceImpl implements QuoteService {
                 }
                 if (firstQuoteItem.getState() != null) {
                     quoteItemJson.put("state", firstQuoteItem.getState());
+                }
+                
+                // CRITICAL: Preserve productOffering information to maintain product reference
+                if (firstQuoteItem.getProductOffering() != null) {
+                    ObjectNode productOfferingObject = objectMapper.createObjectNode();
+                    if (firstQuoteItem.getProductOffering().getId() != null) {
+                        productOfferingObject.put("id", firstQuoteItem.getProductOffering().getId());
+                    }
+                    if (firstQuoteItem.getProductOffering().getHref() != null) {
+                        productOfferingObject.put("href", firstQuoteItem.getProductOffering().getHref());
+                    }
+                    if (firstQuoteItem.getProductOffering().getName() != null) {
+                        productOfferingObject.put("name", firstQuoteItem.getProductOffering().getName());
+                    }
+                    if (firstQuoteItem.getProductOffering().getType() != null) {
+                        productOfferingObject.put("@type", firstQuoteItem.getProductOffering().getType());
+                    }
+                    if (firstQuoteItem.getProductOffering().getReferredType() != null) {
+                        productOfferingObject.put("@referredType", firstQuoteItem.getProductOffering().getReferredType());
+                    }
+                    quoteItemJson.set("productOffering", productOfferingObject);
+                    log.debug("Preserved productOffering {} for attachment update", firstQuoteItem.getProductOffering().getId());
                 }
                 
                 // CRITICAL: Preserve relatedParty information to maintain customer filtering
