@@ -3,10 +3,13 @@ package com.dome.quotemanagement.enums;
 /**
  * Constants for RelatedParty roles in quotes.
  * All comparisons are case-insensitive.
+ * 
+ * NOTE: CUSTOMER constant is named for backward compatibility but maps to "Buyer" role.
+ * The actual role value in quotes is "Buyer", not "Customer".
  */
 public class QuoteRole {
     
-    public static final String CUSTOMER = "Buyer";
+    public static final String CUSTOMER = "Buyer";  // Note: Despite the constant name, the actual role is "Buyer"
     public static final String SELLER = "Seller";
     public static final String BUYER_OPERATOR = "BuyerOperator";
     public static final String SELLER_OPERATOR = "SellerOperator";
@@ -32,9 +35,9 @@ public class QuoteRole {
     }
     
     /**
-     * Check if a role string matches CUSTOMER (case-insensitive)
+     * Check if a role string matches CUSTOMER/Buyer (case-insensitive)
      * @param role the role to check
-     * @return true if role is CUSTOMER (case-insensitive), false otherwise
+     * @return true if role is Buyer (case-insensitive), false otherwise
      */
     public static boolean isCustomer(String role) {
         return equalsIgnoreCase(role, CUSTOMER);

@@ -58,7 +58,7 @@ public class QuoteManagementController {
     @Operation(
         summary = "List tailored quotes by user", 
         description = "Retrieves a list of tailored quotes related to a specific user and role. The role determines where to look for the user ID: " +
-                     "- If role is 'Customer', looks for the ID in Quote.QuoteItem.RelatedParty " +
+                     "- If role is 'Buyer', looks for the ID in Quote.RelatedParty " +
                      "- If role is 'Seller', looks for the ID in Quote.RelatedParty " +
                      "This endpoint only returns quotes with category='tailored'. For tendering quotes, use /tendering/quotes/{userId}"
     )
@@ -71,7 +71,7 @@ public class QuoteManagementController {
     public ResponseEntity<List<QuoteDTO>> listQuotesByUser(
             @Parameter(description = "User ID to filter quotes by", required = true)
             @PathVariable String userId,
-            @Parameter(description = "Role to filter quotes by ('Customer' or 'Seller')", required = true)
+            @Parameter(description = "Role to filter quotes by ('Buyer' or 'Seller')", required = true)
             @RequestParam String role) {
         log.info("Received request to list tailored quotes for user: '{}' with role: '{}'", userId, role);
         
@@ -112,7 +112,7 @@ public class QuoteManagementController {
     public ResponseEntity<List<QuoteDTO>> listTenderingQuotesByUser(
             @Parameter(description = "User ID to filter quotes by", required = true)
             @PathVariable String userId,
-            @Parameter(description = "Role to filter quotes by ('Customer' or 'Seller')", required = true)
+            @Parameter(description = "Role to filter quotes by ('Buyer' or 'Seller')", required = true)
             @RequestParam String role,
             @Parameter(description = "External ID to group tendering quotes by the same process (optional - if not provided, returns all tender quotes for the user)", required = false)
             @RequestParam(required = false) String externalId) {

@@ -56,7 +56,7 @@ public class AppConfig {
     @Value("${notification.api.endpoint:/charging/api/orderManagement/notify}")
     private String notificationEndpoint;
     
-    @Value("${did.identifier:did:elsi:VATES-11111111P}")
+    @Value("${did.identifier:did:elsi:VATSB-12345678J}")
     private String didIdentifier;
     
     @Value("${tmforum.api.bearer-token:}")

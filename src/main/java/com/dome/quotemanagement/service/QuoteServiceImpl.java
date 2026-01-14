@@ -556,13 +556,17 @@ public class QuoteServiceImpl implements QuoteService {
         log.debug("Create quote parameters - customerMessage: '{}', customerIdRef: '{}', providerIdRef: '{}', productOfferingId: '{}', category: '{}', externalId: '{}'", 
                   customerMessage, customerIdRef, providerIdRef, productOfferingId, category, externalId);
         
+        // TODO: TEMPORARILY COMMENTED OUT FOR LOCAL TESTING - MUST BE RESTORED BEFORE PRODUCTION
         // Check if providerIdRef is equal to customerIdRef
+        /* COMMENTED FOR TESTING - RESTORE THIS VALIDATION
         if (providerIdRef != null && customerIdRef != null && providerIdRef.equals(customerIdRef)) {
             throw new QuoteManagementException(
                 "The user cannot request a quote for its own service!", 
                 HttpStatus.CONFLICT
             );
         }
+        */
+        // END TODO: RESTORE VALIDATION ABOVE
         
         try {
             // Build a minimal JSON payload that conforms to TMForum standards
