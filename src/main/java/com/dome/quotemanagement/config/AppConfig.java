@@ -44,6 +44,9 @@ public class AppConfig {
     @Value("${did.identifier:did:elsi:VATES-11111111P}")
     private String didIdentifier;
     
+    @Value("${ID_href:}")
+    private String ID_href;
+    
     // Public getters to maintain backward compatibility
     public String getTmforumQuoteEndpoint() {
         return tmforumQuoteEndpoint;
@@ -59,6 +62,10 @@ public class AppConfig {
     
     public String getDidIdentifier() {
         return didIdentifier;
+    }
+
+    public String getIdHref() {
+        return ID_href;
     }
     
     public String getTmforumProductCatalogManagementEndpoint() {
