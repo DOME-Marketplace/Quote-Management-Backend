@@ -1357,8 +1357,9 @@ public class QuoteServiceImpl implements QuoteService {
                 customerParty.put("@referredType", "organization");
                 relatedPartyArray.add(customerParty);
 
-                String buyerOperatorId = appConfig.getIdHref();
                 String buyerOperatorName = appConfig.getDidIdentifier();
+                // Resolve buyer operator ID from Organization API
+                String buyerOperatorId = resolveBuyerOperatorIdFromOrganization(buyerOperatorName);
                 
                 ObjectNode buyerOperator = objectMapper.createObjectNode();
                 buyerOperator.put("id", buyerOperatorId);
@@ -1367,6 +1368,8 @@ public class QuoteServiceImpl implements QuoteService {
                 buyerOperator.put("name", buyerOperatorName);
                 buyerOperator.put("@referredType", "organization");
                 relatedPartyArray.add(buyerOperator);
+                log.info("Added BuyerOperator to quote-level relatedParty array with ID: {} (from organization-api)",
+                    buyerOperatorId);
             }
             if (relatedPartyArray.size() > 0) {
                 quoteJson.set("relatedParty", relatedPartyArray);
@@ -1450,8 +1453,9 @@ public class QuoteServiceImpl implements QuoteService {
                 customerParty.put("@referredType", "organization");
                 relatedPartyArray.add(customerParty);
 
-                String buyerOperatorId = appConfig.getIdHref();
                 String buyerOperatorName = appConfig.getDidIdentifier();
+                // Resolve buyer operator ID from Organization API
+                String buyerOperatorId = resolveBuyerOperatorIdFromOrganization(buyerOperatorName);
                 
                 ObjectNode buyerOperator = objectMapper.createObjectNode();
                 buyerOperator.put("id", buyerOperatorId);
@@ -1460,6 +1464,8 @@ public class QuoteServiceImpl implements QuoteService {
                 buyerOperator.put("name", buyerOperatorName);
                 buyerOperator.put("@referredType", "organization");
                 relatedPartyArray.add(buyerOperator);
+                log.info("Added BuyerOperator to quote-level relatedParty array with ID: {} (from organization-api)",
+                    buyerOperatorId);
             }
 
             quoteJson.set("relatedParty", relatedPartyArray);
@@ -1780,6 +1786,98 @@ public class QuoteServiceImpl implements QuoteService {
         } catch (Exception e) {
             log.warn("Failed to resolve SellerOperator from ProductOffering {}: {}", productOfferingId, e.getMessage());
             return Optional.empty();
+        }
+    }
+
+    /**
+     * Resolve organization ID by searching for an organization that has 
+     * organizationIdentification.identificationId matching the provided identifier.
+     * @param identificationId the identification ID to search for (e.g., "did:elsi:VATIT-04323210874")
+     * @return the organization ID if found
+     * @throws QuoteManagementException if the organization is not found or cannot be resolved
+     */
+    private String resolveBuyerOperatorIdFromOrganization(String identificationId) {
+        try {
+            if (identificationId == null || identificationId.trim().isEmpty()) {
+                throw new QuoteManagementException(
+                    "Identification ID cannot be null or empty",
+                    HttpStatus.BAD_REQUEST
+                );
+            }
+
+            String base = tmforumBaseUrl.trim();
+            String orgEndpoint = appConfig.getTmforumOrganizationEndpoint();
+            // Call the organization endpoint to get all organizations
+            String url = (base + orgEndpoint).replaceAll("/+$", "");
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+            HttpEntity<?> request = new HttpEntity<>(headers);
+
+            log.debug("Calling Organization API to find organization with identificationId: {}", identificationId);
+            ResponseEntity<String> response = restTemplate.exchange(
+                url,
+                HttpMethod.GET,
+                request,
+                String.class
+            );
+
+            String body = response.getBody();
+            if (body == null || body.isEmpty()) {
+                throw new QuoteManagementException(
+                    "Empty Organization API response when searching for identificationId: " + identificationId,
+                    HttpStatus.NOT_FOUND
+                );
+            }
+
+            JsonNode root = objectMapper.readTree(body);
+            
+            // Handle both array response and single object response
+            JsonNode organizations;
+            if (root.isArray()) {
+                organizations = root;
+            } else if (root.has("organization") && root.get("organization").isArray()) {
+                organizations = root.get("organization");
+            } else {
+                // Single organization object
+                organizations = objectMapper.createArrayNode().add(root);
+            }
+
+            if (organizations != null && organizations.isArray()) {
+                for (JsonNode org : organizations) {
+                    // Check organizationIdentification array
+                    JsonNode orgIdentifications = org.get("organizationIdentification");
+                    if (orgIdentifications != null && orgIdentifications.isArray()) {
+                        for (JsonNode orgId : orgIdentifications) {
+                            if (orgId.hasNonNull("identificationId")) {
+                                String orgIdentificationId = orgId.get("identificationId").asText();
+                                if (identificationId.trim().equals(orgIdentificationId.trim())) {
+                                    // Found matching organization
+                                    if (org.hasNonNull("id")) {
+                                        String orgIdValue = org.get("id").asText();
+                                        log.info("Found organization with id '{}' matching identificationId '{}'", 
+                                            orgIdValue, identificationId);
+                                        return orgIdValue.trim();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            throw new QuoteManagementException(
+                "Organization not found with identificationId: " + identificationId,
+                HttpStatus.NOT_FOUND
+            );
+        } catch (QuoteManagementException e) {
+            throw e; // Re-throw our custom exceptions
+        } catch (Exception e) {
+            throw new QuoteManagementException(
+                "Failed to resolve buyer operator from Organization API with identificationId " + identificationId + ": " + e.getMessage(),
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                e
+            );
         }
     }
 
