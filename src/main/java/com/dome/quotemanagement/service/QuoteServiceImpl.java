@@ -1807,14 +1807,18 @@ public class QuoteServiceImpl implements QuoteService {
 
             String base = tmforumBaseUrl.trim();
             String orgEndpoint = appConfig.getTmforumOrganizationEndpoint();
-            // Call the organization endpoint to get all organizations
-            String url = (base + orgEndpoint).replaceAll("/+$", "");
+            // Build URL with query parameter to filter by identificationId
+            String url = UriComponentsBuilder.fromHttpUrl(base + orgEndpoint)
+                .queryParam("organizationIdentification.identificationId", identificationId)
+                .build(true)
+                .toUriString();
 
             HttpHeaders headers = new HttpHeaders();
             headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
             HttpEntity<?> request = new HttpEntity<>(headers);
 
             log.debug("Calling Organization API to find organization with identificationId: {}", identificationId);
+            log.debug("Organization API URL: {}", url);
             ResponseEntity<String> response = restTemplate.exchange(
                 url,
                 HttpMethod.GET,
@@ -1872,6 +1876,20 @@ public class QuoteServiceImpl implements QuoteService {
             );
         } catch (QuoteManagementException e) {
             throw e; // Re-throw our custom exceptions
+        } catch (org.springframework.web.client.HttpClientErrorException e) {
+            // Handle 404 from API specifically
+            if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
+                throw new QuoteManagementException(
+                    "Organization API endpoint not found or organization not found with identificationId: " + identificationId,
+                    HttpStatus.NOT_FOUND,
+                    e
+                );
+            }
+            throw new QuoteManagementException(
+                "Failed to resolve buyer operator from Organization API with identificationId " + identificationId + ": " + e.getMessage(),
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                e
+            );
         } catch (Exception e) {
             throw new QuoteManagementException(
                 "Failed to resolve buyer operator from Organization API with identificationId " + identificationId + ": " + e.getMessage(),
