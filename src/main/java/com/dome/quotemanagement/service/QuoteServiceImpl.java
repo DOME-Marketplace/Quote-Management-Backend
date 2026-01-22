@@ -5,6 +5,9 @@ import com.dome.quotemanagement.dto.tmforum.AttachmentRefOrValueDTO;
 import com.dome.quotemanagement.dto.tmforum.QuoteDTO;
 import com.dome.quotemanagement.dto.tmforum.QuoteItemDTO;
 import com.dome.quotemanagement.dto.tmforum.NoteDTO;
+import com.dome.quotemanagement.dto.tmforum.ProductOfferingRefDTO;
+import com.dome.quotemanagement.dto.tmforum.ProductRefOrValueDTO;
+import com.dome.quotemanagement.dto.tmforum.ProductCharacteristicDTO;
 import com.dome.quotemanagement.dto.NotificationRequestDTO;
 import com.dome.quotemanagement.enums.QuoteRole;
 import com.dome.quotemanagement.exception.QuoteManagementException;
@@ -1053,6 +1056,90 @@ public class QuoteServiceImpl implements QuoteService {
                         log.debug("Preserved {} attachments for quote item {}", attachmentArray.size(), quoteItem.getId());
                     }
                     
+                    // CRITICAL: Preserve productOffering information to prevent loss during status updates
+                    if (quoteItem.getProductOffering() != null) {
+                        ObjectNode productOfferingObject = objectMapper.createObjectNode();
+                        ProductOfferingRefDTO productOffering = quoteItem.getProductOffering();
+                        
+                        if (productOffering.getId() != null) {
+                            productOfferingObject.put("id", productOffering.getId());
+                        }
+                        if (productOffering.getHref() != null) {
+                            productOfferingObject.put("href", productOffering.getHref());
+                        }
+                        if (productOffering.getName() != null) {
+                            productOfferingObject.put("name", productOffering.getName());
+                        }
+                        if (productOffering.getType() != null) {
+                            productOfferingObject.put("@type", productOffering.getType());
+                        }
+                        if (productOffering.getReferredType() != null) {
+                            productOfferingObject.put("@referredType", productOffering.getReferredType());
+                        }
+                        if (productOffering.getBaseType() != null) {
+                            productOfferingObject.put("@baseType", productOffering.getBaseType());
+                        }
+                        if (productOffering.getSchemaLocation() != null) {
+                            productOfferingObject.put("@schemaLocation", productOffering.getSchemaLocation());
+                        }
+                        
+                        quoteItemJson.set("productOffering", productOfferingObject);
+                        log.debug("Preserved productOffering for quote item {}", quoteItem.getId());
+                    }
+                    
+                    // CRITICAL: Preserve product information to prevent loss during status updates
+                    if (quoteItem.getProduct() != null) {
+                        ObjectNode productObject = objectMapper.createObjectNode();
+                        ProductRefOrValueDTO product = quoteItem.getProduct();
+                        
+                        if (product.getId() != null) {
+                            productObject.put("id", product.getId());
+                        }
+                        if (product.getHref() != null) {
+                            productObject.put("href", product.getHref());
+                        }
+                        if (product.getName() != null) {
+                            productObject.put("name", product.getName());
+                        }
+                        if (product.getDescription() != null) {
+                            productObject.put("description", product.getDescription());
+                        }
+                        if (product.getType() != null) {
+                            productObject.put("@type", product.getType());
+                        }
+                        if (product.getReferredType() != null) {
+                            productObject.put("@referredType", product.getReferredType());
+                        }
+                        if (product.getBaseType() != null) {
+                            productObject.put("@baseType", product.getBaseType());
+                        }
+                        if (product.getSchemaLocation() != null) {
+                            productObject.put("@schemaLocation", product.getSchemaLocation());
+                        }
+                        
+                        // Preserve product characteristics if present
+                        if (product.getProductCharacteristic() != null && !product.getProductCharacteristic().isEmpty()) {
+                            ArrayNode characteristicsArray = objectMapper.createArrayNode();
+                            for (ProductCharacteristicDTO characteristic : product.getProductCharacteristic()) {
+                                ObjectNode charObject = objectMapper.createObjectNode();
+                                if (characteristic.getName() != null) {
+                                    charObject.put("name", characteristic.getName());
+                                }
+                                if (characteristic.getValue() != null) {
+                                    charObject.put("value", characteristic.getValue());
+                                }
+                                if (characteristic.getValueType() != null) {
+                                    charObject.put("valueType", characteristic.getValueType());
+                                }
+                                characteristicsArray.add(charObject);
+                            }
+                            productObject.set("productCharacteristic", characteristicsArray);
+                        }
+                        
+                        quoteItemJson.set("product", productObject);
+                        log.debug("Preserved product for quote item {}", quoteItem.getId());
+                    }
+                    
                     quoteItemArray.add(quoteItemJson);
                 }
             } else {
@@ -1174,6 +1261,90 @@ public class QuoteServiceImpl implements QuoteService {
                         relatedPartyArray.add(relatedPartyObject);
                     }
                     quoteItemJson.set("relatedParty", relatedPartyArray);
+                }
+                
+                // CRITICAL: Preserve productOffering information to prevent loss during attachment updates
+                if (firstQuoteItem.getProductOffering() != null) {
+                    ObjectNode productOfferingObject = objectMapper.createObjectNode();
+                    ProductOfferingRefDTO productOffering = firstQuoteItem.getProductOffering();
+                    
+                    if (productOffering.getId() != null) {
+                        productOfferingObject.put("id", productOffering.getId());
+                    }
+                    if (productOffering.getHref() != null) {
+                        productOfferingObject.put("href", productOffering.getHref());
+                    }
+                    if (productOffering.getName() != null) {
+                        productOfferingObject.put("name", productOffering.getName());
+                    }
+                    if (productOffering.getType() != null) {
+                        productOfferingObject.put("@type", productOffering.getType());
+                    }
+                    if (productOffering.getReferredType() != null) {
+                        productOfferingObject.put("@referredType", productOffering.getReferredType());
+                    }
+                    if (productOffering.getBaseType() != null) {
+                        productOfferingObject.put("@baseType", productOffering.getBaseType());
+                    }
+                    if (productOffering.getSchemaLocation() != null) {
+                        productOfferingObject.put("@schemaLocation", productOffering.getSchemaLocation());
+                    }
+                    
+                    quoteItemJson.set("productOffering", productOfferingObject);
+                    log.debug("Preserved productOffering for quote item during attachment update");
+                }
+                
+                // CRITICAL: Preserve product information to prevent loss during attachment updates
+                if (firstQuoteItem.getProduct() != null) {
+                    ObjectNode productObject = objectMapper.createObjectNode();
+                    ProductRefOrValueDTO product = firstQuoteItem.getProduct();
+                    
+                    if (product.getId() != null) {
+                        productObject.put("id", product.getId());
+                    }
+                    if (product.getHref() != null) {
+                        productObject.put("href", product.getHref());
+                    }
+                    if (product.getName() != null) {
+                        productObject.put("name", product.getName());
+                    }
+                    if (product.getDescription() != null) {
+                        productObject.put("description", product.getDescription());
+                    }
+                    if (product.getType() != null) {
+                        productObject.put("@type", product.getType());
+                    }
+                    if (product.getReferredType() != null) {
+                        productObject.put("@referredType", product.getReferredType());
+                    }
+                    if (product.getBaseType() != null) {
+                        productObject.put("@baseType", product.getBaseType());
+                    }
+                    if (product.getSchemaLocation() != null) {
+                        productObject.put("@schemaLocation", product.getSchemaLocation());
+                    }
+                    
+                    // Preserve product characteristics if present
+                    if (product.getProductCharacteristic() != null && !product.getProductCharacteristic().isEmpty()) {
+                        ArrayNode characteristicsArray = objectMapper.createArrayNode();
+                        for (ProductCharacteristicDTO characteristic : product.getProductCharacteristic()) {
+                            ObjectNode charObject = objectMapper.createObjectNode();
+                            if (characteristic.getName() != null) {
+                                charObject.put("name", characteristic.getName());
+                            }
+                            if (characteristic.getValue() != null) {
+                                charObject.put("value", characteristic.getValue());
+                            }
+                            if (characteristic.getValueType() != null) {
+                                charObject.put("valueType", characteristic.getValueType());
+                            }
+                            characteristicsArray.add(charObject);
+                        }
+                        productObject.set("productCharacteristic", characteristicsArray);
+                    }
+                    
+                    quoteItemJson.set("product", productObject);
+                    log.debug("Preserved product for quote item during attachment update");
                 }
                 
                 // Create attachment array for this quote item (overwrite any existing attachments)
