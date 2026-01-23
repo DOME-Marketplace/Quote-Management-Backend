@@ -38,6 +38,9 @@ public class AppConfig {
     @Value("${tmforum.api.organization-endpoint:/party/v4/organization}")
     private String tmforumOrganizationEndpoint;
     
+    @Value("${tmforum.party.api.base-url:https://tmf.dome-marketplace-sbx.org/tmf-api}")
+    private String tmforumPartyApiBaseUrl;
+    
     @Value("${notification.api.endpoint:/charging/api/orderManagement/notify}")
     private String notificationEndpoint;
     
@@ -74,6 +77,10 @@ public class AppConfig {
     
     public String getTmforumOrganizationEndpoint() {
         return tmforumOrganizationEndpoint;
+    }
+    
+    public String getTmforumPartyApiBaseUrl() {
+        return tmforumPartyApiBaseUrl;
     }
     
     @Autowired
