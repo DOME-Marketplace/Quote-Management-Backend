@@ -1805,155 +1805,71 @@ public class QuoteServiceImpl implements QuoteService {
                 );
             }
 
-            String base = tmforumBaseUrl.trim();
+            String base = appConfig.getTmforumPartyApiBaseUrl().trim();
             String orgEndpoint = appConfig.getTmforumOrganizationEndpoint();
-            String baseUrl = base + orgEndpoint;
-            
-            int pageSize = 50;
-            int offset = 0;
-            
+            String url = (base + orgEndpoint).replaceAll("/+$", "");
+
             HttpHeaders headers = new HttpHeaders();
             headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+            HttpEntity<?> request = new HttpEntity<>(headers);
+
+            log.debug("Calling Organization API to find organization with identificationId: {}", identificationId);
+            log.debug("Organization API URL: {}", url);
+            ResponseEntity<String> response = restTemplate.exchange(
+                url,
+                HttpMethod.GET,
+                request,
+                String.class
+            );
+
+            String body = response.getBody();
+            if (body == null || body.isEmpty()) {
+                throw new QuoteManagementException(
+                    "Empty Organization API response when searching for identificationId: " + identificationId,
+                    HttpStatus.NOT_FOUND
+                );
+            }
+
+            JsonNode root = objectMapper.readTree(body);
             
-            log.debug("Searching for organization with identificationId: {} using pagination", identificationId);
-            
-            boolean hasMore = true;
-            int pageNumber = 0;
-            
-            while (hasMore) {
-                try {
-                    // Build URL with pagination parameters
-                    String url = UriComponentsBuilder.fromHttpUrl(baseUrl)
-                        .queryParam("limit", pageSize)
-                        .queryParam("offset", offset)
-                        .build(true)
-                        .toUriString();
-                    
-                    log.debug("Fetching organizations page {} (offset={}, limit={})", pageNumber + 1, offset, pageSize);
-                    
-                    HttpEntity<?> request = new HttpEntity<>(headers);
-                    ResponseEntity<String> response = restTemplate.exchange(
-                        url,
-                        HttpMethod.GET,
-                        request,
-                        String.class
-                    );
-                    
-                    String body = response.getBody();
-                    if (body == null || body.isEmpty()) {
-                        hasMore = false;
-                        log.debug("No more organizations found at page {}", pageNumber + 1);
-                        break;
-                    }
-                    
-                    JsonNode root = objectMapper.readTree(body);
-                    
-                    // Handle both array response and single object response
-                    JsonNode organizations;
-                    if (root.isArray()) {
-                        organizations = root;
-                    } else if (root.has("organization") && root.get("organization").isArray()) {
-                        organizations = root.get("organization");
-                    } else {
-                        // Single organization object
-                        organizations = objectMapper.createArrayNode().add(root);
-                    }
-                    
-                    if (organizations == null || !organizations.isArray() || organizations.size() == 0) {
-                        hasMore = false;
-                        log.debug("No more organizations found at page {}", pageNumber + 1);
-                        break;
-                    }
-                    
-                    // Search through current page of organizations
-                    for (JsonNode org : organizations) {
-                        // Check organizationIdentification array
-                        JsonNode orgIdentifications = org.get("organizationIdentification");
-                        if (orgIdentifications != null && orgIdentifications.isArray()) {
-                            for (JsonNode orgId : orgIdentifications) {
-                                if (orgId.hasNonNull("identificationId")) {
-                                    String orgIdentificationId = orgId.get("identificationId").asText();
-                                    if (identificationId.trim().equals(orgIdentificationId.trim())) {
-                                        // Found matching organization
-                                        if (org.hasNonNull("id")) {
-                                            String orgIdValue = org.get("id").asText();
-                                            log.info("Found organization with id '{}' matching identificationId '{}' (searched {} pages)", 
-                                                orgIdValue, identificationId, pageNumber + 1);
-                                            return orgIdValue.trim();
-                                        }
+            // Handle both array response and single object response
+            JsonNode organizations;
+            if (root.isArray()) {
+                organizations = root;
+            } else if (root.has("organization") && root.get("organization").isArray()) {
+                organizations = root.get("organization");
+            } else {
+                // Single organization object
+                organizations = objectMapper.createArrayNode().add(root);
+            }
+
+            if (organizations != null && organizations.isArray()) {
+                for (JsonNode org : organizations) {
+                    // Check organizationIdentification array
+                    JsonNode orgIdentifications = org.get("organizationIdentification");
+                    if (orgIdentifications != null && orgIdentifications.isArray()) {
+                        for (JsonNode orgId : orgIdentifications) {
+                            if (orgId.hasNonNull("identificationId")) {
+                                String orgIdentificationId = orgId.get("identificationId").asText();
+                                if (identificationId.trim().equals(orgIdentificationId.trim())) {
+                                    // Found matching organization
+                                    if (org.hasNonNull("id")) {
+                                        String orgIdValue = org.get("id").asText();
+                                        log.info("Found organization with id '{}' matching identificationId '{}'", 
+                                            orgIdValue, identificationId);
+                                        return orgIdValue.trim();
                                     }
                                 }
                             }
                         }
                     }
-                    
-                    // If we got fewer results than pageSize, we've reached the end
-                    if (organizations.size() < pageSize) {
-                        hasMore = false;
-                        log.debug("Reached end of organizations (got {} organizations, expected {})", organizations.size(), pageSize);
-                    } else {
-                        // Move to next page
-                        offset += pageSize;
-                        pageNumber++;
-                    }
-                    
-                } catch (org.springframework.web.client.HttpClientErrorException e) {
-                    if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
-                        // If endpoint doesn't support pagination, try without pagination parameters
-                        log.debug("Pagination not supported, trying without pagination parameters");
-                        String url = (baseUrl).replaceAll("/+$", "");
-                        HttpEntity<?> request = new HttpEntity<>(headers);
-                        ResponseEntity<String> response = restTemplate.exchange(
-                            url,
-                            HttpMethod.GET,
-                            request,
-                            String.class
-                        );
-                        
-                        String body = response.getBody();
-                        if (body != null && !body.isEmpty()) {
-                            JsonNode root = objectMapper.readTree(body);
-                            JsonNode organizations;
-                            if (root.isArray()) {
-                                organizations = root;
-                            } else if (root.has("organization") && root.get("organization").isArray()) {
-                                organizations = root.get("organization");
-                            } else {
-                                organizations = objectMapper.createArrayNode().add(root);
-                            }
-                            
-                            if (organizations != null && organizations.isArray()) {
-                                for (JsonNode org : organizations) {
-                                    JsonNode orgIdentifications = org.get("organizationIdentification");
-                                    if (orgIdentifications != null && orgIdentifications.isArray()) {
-                                        for (JsonNode orgId : orgIdentifications) {
-                                            if (orgId.hasNonNull("identificationId")) {
-                                                String orgIdentificationId = orgId.get("identificationId").asText();
-                                                if (identificationId.trim().equals(orgIdentificationId.trim())) {
-                                                    if (org.hasNonNull("id")) {
-                                                        String orgIdValue = org.get("id").asText();
-                                                        log.info("Found organization with id '{}' matching identificationId '{}'", 
-                                                            orgIdValue, identificationId);
-                                                        return orgIdValue.trim();
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    throw e;
                 }
             }
-            
-            // If we've searched all pages and didn't find it
+
             throw new QuoteManagementException(
-                "Organization not found with identificationId: " + identificationId + " (searched " + (pageNumber + 1) + " pages)",
+                "Organization not found with identificationId: " + identificationId,
                 HttpStatus.NOT_FOUND
             );
-            
         } catch (QuoteManagementException e) {
             throw e; // Re-throw our custom exceptions
         } catch (org.springframework.web.client.HttpClientErrorException e) {
