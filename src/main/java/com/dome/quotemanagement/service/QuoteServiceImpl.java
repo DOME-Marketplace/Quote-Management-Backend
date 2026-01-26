@@ -1361,12 +1361,15 @@ public class QuoteServiceImpl implements QuoteService {
             // Add customer and buyer operator as relatedParty at the quote level
             ArrayNode relatedPartyArray = objectMapper.createArrayNode();
             if (customerIdRef != null && !customerIdRef.trim().isEmpty()) {
+                // Resolve buyer name from Organization API
+                String buyerName = resolveBuyerNameFromOrganization(customerIdRef);
+                
                 ObjectNode customerParty = objectMapper.createObjectNode();
                 customerParty.put("@type", "RelatedParty");
                 customerParty.put("id", customerIdRef);
                 customerParty.put("href", customerIdRef);
                 customerParty.put("role", QuoteRole.CUSTOMER);
-                customerParty.put("name", customerIdRef);
+                customerParty.put("name", buyerName);
                 customerParty.put("@referredType", "organization");
                 relatedPartyArray.add(customerParty);
 
@@ -1475,12 +1478,15 @@ public class QuoteServiceImpl implements QuoteService {
             
             // Add customer and buyer operator on the quote-level relatedParty
             if (customerIdRef != null && !customerIdRef.trim().isEmpty()) {
+                // Resolve buyer name from Organization API
+                String buyerName = resolveBuyerNameFromOrganization(customerIdRef);
+                
                 ObjectNode customerParty = objectMapper.createObjectNode();
                 customerParty.put("@type", "RelatedParty");
                 customerParty.put("id", customerIdRef);
                 customerParty.put("href", customerIdRef);
                 customerParty.put("role", QuoteRole.CUSTOMER);
-                customerParty.put("name", customerIdRef);
+                customerParty.put("name", buyerName);
                 customerParty.put("@referredType", "organization");
                 relatedPartyArray.add(customerParty);
 
@@ -2057,13 +2063,12 @@ public class QuoteServiceImpl implements QuoteService {
     }
 
     /**
-     * Resolve organization name from externalReference.name by calling the Organization API
-     * @param organizationId the organization ID to look up
+     * Resolve buyer organization name from externalReference.name by calling the Organization API
+     * @param organizationId the organization ID to look up (customerIdRef)
      * @return the name from externalReference.name
      * @throws QuoteManagementException if the organization is not found or the name cannot be resolved
      */
-    /*
-    private String resolveOrganizationName(String organizationId) {
+    private String resolveBuyerNameFromOrganization(String organizationId) {
         try {
             if (organizationId == null || organizationId.trim().isEmpty()) {
                 throw new QuoteManagementException(
@@ -2072,7 +2077,7 @@ public class QuoteServiceImpl implements QuoteService {
                 );
             }
 
-            String base = tmforumBaseUrl.trim();
+            String base = appConfig.getTmforumPartyApiBaseUrl().trim();
             String orgEndpoint = appConfig.getTmforumOrganizationEndpoint();
             String url = (base + orgEndpoint).replaceAll("/+$", "") + "/" + organizationId.trim();
 
@@ -2080,6 +2085,8 @@ public class QuoteServiceImpl implements QuoteService {
             headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
             HttpEntity<?> request = new HttpEntity<>(headers);
 
+            log.debug("Calling Organization API to get name for organization ID: {}", organizationId);
+            log.debug("Organization API URL: {}", url);
             ResponseEntity<String> response = restTemplate.exchange(
                 url,
                 HttpMethod.GET,
@@ -2116,15 +2123,28 @@ public class QuoteServiceImpl implements QuoteService {
             );
         } catch (QuoteManagementException e) {
             throw e; // Re-throw our custom exceptions
+        } catch (org.springframework.web.client.HttpClientErrorException e) {
+            // Handle 404 from API specifically
+            if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
+                throw new QuoteManagementException(
+                    "Organization API endpoint not found or organization not found with id: " + organizationId,
+                    HttpStatus.NOT_FOUND,
+                    e
+                );
+            }
+            throw new QuoteManagementException(
+                "Failed to resolve buyer name from Organization API with id " + organizationId + ": " + e.getMessage(),
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                e
+            );
         } catch (Exception e) {
             throw new QuoteManagementException(
-                "Failed to resolve organization name for id " + organizationId + ": " + e.getMessage(),
+                "Failed to resolve buyer name from Organization API with id " + organizationId + ": " + e.getMessage(),
                 HttpStatus.INTERNAL_SERVER_ERROR,
                 e
             );
         }
     }
-    */
 
     private void writeLogToFile(String content) {
         try {
