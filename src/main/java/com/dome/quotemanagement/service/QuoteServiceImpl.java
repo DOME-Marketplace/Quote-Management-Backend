@@ -1791,7 +1791,12 @@ public class QuoteServiceImpl implements QuoteService {
 
             String base = tmforumBaseUrl.trim();
             String poEndpoint = appConfig.getTmforumProductCatalogManagementEndpoint();
-            String url = (base + poEndpoint).replaceAll("/+$", "") + "/" + productOfferingId.trim();
+            // Use UriComponentsBuilder to properly encode the productOfferingId in the URL
+            String url = UriComponentsBuilder.fromHttpUrl(base + poEndpoint)
+                .pathSegment(productOfferingId.trim())
+                .build()
+                .encode()
+                .toUriString();
 
             log.debug("Calling ProductOffering API to resolve SellerOperator: {}", url);
 
@@ -1880,7 +1885,12 @@ public class QuoteServiceImpl implements QuoteService {
 
             String base = tmforumBaseUrl.trim();
             String poEndpoint = appConfig.getTmforumProductCatalogManagementEndpoint();
-            String url = (base + poEndpoint).replaceAll("/+$", "") + "/" + productOfferingId.trim();
+            // Use UriComponentsBuilder to properly encode the productOfferingId in the URL
+            String url = UriComponentsBuilder.fromHttpUrl(base + poEndpoint)
+                .pathSegment(productOfferingId.trim())
+                .build()
+                .encode()
+                .toUriString();
 
             log.info("Calling ProductOffering API to resolve Seller: {}", url);
             log.debug("ProductOffering ID: '{}', Base URL: '{}', Endpoint: '{}'", productOfferingId, base, poEndpoint);
