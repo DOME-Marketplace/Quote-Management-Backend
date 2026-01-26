@@ -1789,14 +1789,9 @@ public class QuoteServiceImpl implements QuoteService {
                 return Optional.empty();
             }
 
-            String base = tmforumBaseUrl.trim();
+            String base = appConfig.getTmforumProductCatalogApiBaseUrl().trim();
             String poEndpoint = appConfig.getTmforumProductCatalogManagementEndpoint();
-            // Use UriComponentsBuilder to properly encode the productOfferingId in the URL
-            String url = UriComponentsBuilder.fromHttpUrl(base + poEndpoint)
-                .pathSegment(productOfferingId.trim())
-                .build()
-                .encode()
-                .toUriString();
+            String url = (base + poEndpoint).replaceAll("/+$", "") + "/" + productOfferingId.trim();
 
             log.debug("Calling ProductOffering API to resolve SellerOperator: {}", url);
 
@@ -1876,24 +1871,17 @@ public class QuoteServiceImpl implements QuoteService {
      * @return Optional containing SellerInfo with id, href, and name if found and complete
      */
     private Optional<SellerInfo> resolveSellerIdFromProductOffering(String productOfferingId) {
-        log.info("resolveSellerIdFromProductOffering called with productOfferingId: '{}'", productOfferingId);
         try {
             if (productOfferingId == null || productOfferingId.trim().isEmpty()) {
                 log.error("Cannot resolve Seller: productOfferingId is null or empty");
                 return Optional.empty();
             }
 
-            String base = tmforumBaseUrl.trim();
+            String base = appConfig.getTmforumProductCatalogApiBaseUrl().trim();
             String poEndpoint = appConfig.getTmforumProductCatalogManagementEndpoint();
-            // Use UriComponentsBuilder to properly encode the productOfferingId in the URL
-            String url = UriComponentsBuilder.fromHttpUrl(base + poEndpoint)
-                .pathSegment(productOfferingId.trim())
-                .build()
-                .encode()
-                .toUriString();
+            String url = (base + poEndpoint).replaceAll("/+$", "") + "/" + productOfferingId.trim();
 
-            log.info("Calling ProductOffering API to resolve Seller: {}", url);
-            log.debug("ProductOffering ID: '{}', Base URL: '{}', Endpoint: '{}'", productOfferingId, base, poEndpoint);
+            log.debug("Calling ProductOffering API to resolve Seller: {}", url);
 
             HttpHeaders headers = new HttpHeaders();
             headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
@@ -1912,36 +1900,17 @@ public class QuoteServiceImpl implements QuoteService {
                 return Optional.empty();
             }
 
-            log.debug("ProductOffering API response body length: {}", body != null ? body.length() : 0);
-            log.debug("ProductOffering API response (first 500 chars): {}", 
-                body != null && body.length() > 500 ? body.substring(0, 500) : body);
             JsonNode root = objectMapper.readTree(body);
             JsonNode relatedParties = root.get("relatedParty");
             
             if (relatedParties == null || !relatedParties.isArray()) {
-                log.error("Cannot resolve Seller: ProductOffering '{}' does not have a relatedParty array. relatedParties is null: {}, isArray: {}", 
-                    productOfferingId, relatedParties == null, relatedParties != null && relatedParties.isArray());
+                log.error("Cannot resolve Seller: ProductOffering '{}' does not have a relatedParty array", productOfferingId);
                 return Optional.empty();
             }
 
-            log.info("ProductOffering '{}' has {} relatedParty entries", productOfferingId, relatedParties.size());
-            
-            // Log the entire relatedParty array structure for debugging
-            log.debug("relatedParty array content: {}", relatedParties.toString());
-            
             for (JsonNode rp : relatedParties) {
                 String role = rp.hasNonNull("role") ? rp.get("role").asText() : null;
-                log.info("Checking relatedParty entry - role: '{}', id: '{}', href: '{}', name: '{}' (looking for role='Seller')", 
-                    role, 
-                    rp.hasNonNull("id") ? rp.get("id").asText() : "null",
-                    rp.hasNonNull("href") ? rp.get("href").asText() : "null",
-                    rp.hasNonNull("name") ? rp.get("name").asText() : "null");
-                
-                boolean roleMatches = role != null && QuoteRole.equalsIgnoreCase(role, QuoteRole.SELLER);
-                log.debug("Role comparison: '{}' == '{}' (case-insensitive) = {}", role, QuoteRole.SELLER, roleMatches);
-                
-                if (roleMatches) {
-                    log.debug("Found Seller role match in ProductOffering '{}'", productOfferingId);
+                if (role != null && QuoteRole.equalsIgnoreCase(role, QuoteRole.SELLER)) {
                     String id = rp.hasNonNull("id") ? rp.get("id").asText() : null;
                     String href = rp.hasNonNull("href") ? rp.get("href").asText() : null;
                     String name = rp.hasNonNull("name") ? rp.get("name").asText() : null;
@@ -1966,14 +1935,7 @@ public class QuoteServiceImpl implements QuoteService {
                 }
             }
 
-            log.error("Cannot resolve Seller: ProductOffering '{}' does not contain a relatedParty with role='Seller'. Checked {} relatedParty entries.", 
-                productOfferingId, relatedParties.size());
-            // Log all roles found for debugging
-            log.debug("RelatedParty roles found in ProductOffering '{}':", productOfferingId);
-            for (JsonNode rp : relatedParties) {
-                String role = rp.hasNonNull("role") ? rp.get("role").asText() : null;
-                log.debug("  - role: '{}'", role);
-            }
+            log.error("Cannot resolve Seller: ProductOffering '{}' does not contain a relatedParty with role='Seller'", productOfferingId);
             return Optional.empty();
         } catch (org.springframework.web.client.HttpClientErrorException e) {
             log.error("Cannot resolve Seller: HTTP error when calling ProductOffering API for id '{}': {} - {}", 
