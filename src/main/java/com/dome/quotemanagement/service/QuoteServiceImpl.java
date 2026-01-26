@@ -44,6 +44,16 @@ public class QuoteServiceImpl implements QuoteService {
     private final NotificationService notificationService;
     private final AppConfig appConfig;
     
+    /**
+     * Record to hold SellerOperator information from ProductOffering
+     */
+    private record SellerOperatorInfo(String id, String href, String name) {}
+    
+    /**
+     * Record to hold Seller information from ProductOffering
+     */
+    private record SellerInfo(String id, String href, String name) {}
+    
     @Value("${tmforum.api.base-url}")
     private String tmforumBaseUrl;
     
@@ -613,6 +623,9 @@ public class QuoteServiceImpl implements QuoteService {
             
             return response;
             
+        } catch (QuoteManagementException e) {
+            // Propagate QuoteManagementException to preserve HttpStatus
+            throw e;
         } catch (Exception e) {
             log.error("Error creating quote: {}", e.getMessage(), e);
             throw new RuntimeException("Failed to create quote", e);
@@ -1348,12 +1361,15 @@ public class QuoteServiceImpl implements QuoteService {
             // Add customer and buyer operator as relatedParty at the quote level
             ArrayNode relatedPartyArray = objectMapper.createArrayNode();
             if (customerIdRef != null && !customerIdRef.trim().isEmpty()) {
+                // Resolve buyer name from Organization API
+                String buyerName = resolveBuyerNameFromOrganization(customerIdRef);
+                
                 ObjectNode customerParty = objectMapper.createObjectNode();
                 customerParty.put("@type", "RelatedParty");
                 customerParty.put("id", customerIdRef);
                 customerParty.put("href", customerIdRef);
                 customerParty.put("role", QuoteRole.CUSTOMER);
-                customerParty.put("name", customerIdRef);
+                customerParty.put("name", buyerName);
                 customerParty.put("@referredType", "organization");
                 relatedPartyArray.add(customerParty);
 
@@ -1416,40 +1432,61 @@ public class QuoteServiceImpl implements QuoteService {
             // Add relatedParty array at the Quote level for Seller, SellerOperator, Customer and BuyerOperator
             ArrayNode relatedPartyArray = objectMapper.createArrayNode();
             
-            // Add provider related party if provided
-            if (providerIdRef != null && !providerIdRef.trim().isEmpty()) {
-                ObjectNode providerParty = objectMapper.createObjectNode();
-                providerParty.put("id", providerIdRef);
-                providerParty.put("href", providerIdRef);
-                providerParty.put("role", QuoteRole.SELLER);
-                providerParty.put("name", providerIdRef);
-                providerParty.put("@referredType", "organization");
-                relatedPartyArray.add(providerParty);
-            }
+            // Resolve Seller from ProductOffering.relatedParty(role=Seller)
+            SellerInfo sellerInfo = resolveSellerIdFromProductOffering(productOfferingId)
+                .orElseThrow(() -> {
+                    String errorMsg = String.format(
+                        "Cannot create quote: Seller not found or incomplete in ProductOffering.relatedParty for productOfferingId '%s'. " +
+                        "The ProductOffering must contain a relatedParty with role='Seller' having id, href, and name attributes.",
+                        productOfferingId
+                    );
+                    log.error(errorMsg);
+                    return new QuoteManagementException(errorMsg, HttpStatus.BAD_REQUEST);
+                });
 
-            // Resolve SellerOperator from ProductOffering.relatedParty(role=SellerOperator); fallback to config DID
-            String sellerOperatorId = resolveSellerOperatorIdFromProductOffering(productOfferingId)
-                .orElse(appConfig.getDidIdentifier());
+            ObjectNode seller = objectMapper.createObjectNode();
+            seller.put("id", sellerInfo.id());
+            seller.put("href", sellerInfo.href());
+            seller.put("role", QuoteRole.SELLER);
+            seller.put("name", sellerInfo.name());
+            seller.put("@referredType", "organization");
+            relatedPartyArray.add(seller);
+            log.info("Added Seller to quote-level relatedParty array with ID: {}, href: {}, name: {} (from productOffering)",
+                sellerInfo.id(), sellerInfo.href(), sellerInfo.name());
+
+            // Resolve SellerOperator from ProductOffering.relatedParty(role=SellerOperator)
+            SellerOperatorInfo sellerOperatorInfo = resolveSellerOperatorIdFromProductOffering(productOfferingId)
+                .orElseThrow(() -> {
+                    String errorMsg = String.format(
+                        "Cannot create quote: SellerOperator not found or incomplete in ProductOffering.relatedParty for productOfferingId '%s'. " +
+                        "The ProductOffering must contain a relatedParty with role='SellerOperator' having id, href, and name attributes.",
+                        productOfferingId
+                    );
+                    log.error(errorMsg);
+                    return new QuoteManagementException(errorMsg, HttpStatus.BAD_REQUEST);
+                });
 
             ObjectNode sellerOperator = objectMapper.createObjectNode();
-            sellerOperator.put("id", sellerOperatorId);
-            sellerOperator.put("href", sellerOperatorId);
+            sellerOperator.put("id", sellerOperatorInfo.id());
+            sellerOperator.put("href", sellerOperatorInfo.href());
             sellerOperator.put("role", QuoteRole.SELLER_OPERATOR);
-            sellerOperator.put("name", sellerOperatorId);
+            sellerOperator.put("name", sellerOperatorInfo.name());
             sellerOperator.put("@referredType", "organization");
             relatedPartyArray.add(sellerOperator);
-            log.info("Added SellerOperator to quote-level relatedParty array with ID: {} (source: {})",
-                sellerOperatorId,
-                (sellerOperatorId.equals(appConfig.getDidIdentifier()) ? "config" : "productOffering"));
+            log.info("Added SellerOperator to quote-level relatedParty array with ID: {}, href: {}, name: {} (from productOffering)",
+                sellerOperatorInfo.id(), sellerOperatorInfo.href(), sellerOperatorInfo.name());
             
             // Add customer and buyer operator on the quote-level relatedParty
             if (customerIdRef != null && !customerIdRef.trim().isEmpty()) {
+                // Resolve buyer name from Organization API
+                String buyerName = resolveBuyerNameFromOrganization(customerIdRef);
+                
                 ObjectNode customerParty = objectMapper.createObjectNode();
                 customerParty.put("@type", "RelatedParty");
                 customerParty.put("id", customerIdRef);
                 customerParty.put("href", customerIdRef);
                 customerParty.put("role", QuoteRole.CUSTOMER);
-                customerParty.put("name", customerIdRef);
+                customerParty.put("name", buyerName);
                 customerParty.put("@referredType", "organization");
                 relatedPartyArray.add(customerParty);
 
@@ -1740,15 +1777,23 @@ public class QuoteServiceImpl implements QuoteService {
         }
     }
 
-    private Optional<String> resolveSellerOperatorIdFromProductOffering(String productOfferingId) {
+    /**
+     * Resolve SellerOperator information (id, href, name) from ProductOffering.relatedParty
+     * @param productOfferingId the ProductOffering ID to query
+     * @return Optional containing SellerOperatorInfo with id, href, and name if found and complete
+     */
+    private Optional<SellerOperatorInfo> resolveSellerOperatorIdFromProductOffering(String productOfferingId) {
         try {
             if (productOfferingId == null || productOfferingId.trim().isEmpty()) {
+                log.error("Cannot resolve SellerOperator: productOfferingId is null or empty");
                 return Optional.empty();
             }
 
             String base = tmforumBaseUrl.trim();
             String poEndpoint = appConfig.getTmforumProductCatalogManagementEndpoint();
             String url = (base + poEndpoint).replaceAll("/+$", "") + "/" + productOfferingId.trim();
+
+            log.debug("Calling ProductOffering API to resolve SellerOperator: {}", url);
 
             HttpHeaders headers = new HttpHeaders();
             headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
@@ -1763,28 +1808,146 @@ public class QuoteServiceImpl implements QuoteService {
 
             String body = response.getBody();
             if (body == null || body.isEmpty()) {
-                log.warn("Empty ProductOffering response for id {}", productOfferingId);
+                log.error("Cannot resolve SellerOperator: Empty ProductOffering response for id {}", productOfferingId);
                 return Optional.empty();
             }
 
             JsonNode root = objectMapper.readTree(body);
             JsonNode relatedParties = root.get("relatedParty");
-            if (relatedParties != null && relatedParties.isArray()) {
-                for (JsonNode rp : relatedParties) {
-                    String role = rp.hasNonNull("role") ? rp.get("role").asText() : null;
-                    if (role != null && QuoteRole.equalsIgnoreCase(role, QuoteRole.SELLER_OPERATOR)) {
-                        String id = rp.hasNonNull("id") ? rp.get("id").asText() : null;
-                        if (id != null && !id.trim().isEmpty()) {
-                            return Optional.of(id.trim());
-                        }
+            
+            if (relatedParties == null || !relatedParties.isArray()) {
+                log.error("Cannot resolve SellerOperator: ProductOffering '{}' does not have a relatedParty array", productOfferingId);
+                return Optional.empty();
+            }
+
+            for (JsonNode rp : relatedParties) {
+                String role = rp.hasNonNull("role") ? rp.get("role").asText() : null;
+                if (role != null && QuoteRole.equalsIgnoreCase(role, QuoteRole.SELLER_OPERATOR)) {
+                    String id = rp.hasNonNull("id") ? rp.get("id").asText() : null;
+                    String href = rp.hasNonNull("href") ? rp.get("href").asText() : null;
+                    String name = rp.hasNonNull("name") ? rp.get("name").asText() : null;
+                    
+                    // Validate that all three attributes are present and not empty
+                    if (id == null || id.trim().isEmpty()) {
+                        log.error("Cannot resolve SellerOperator: ProductOffering '{}' has SellerOperator relatedParty but 'id' is missing or empty", productOfferingId);
+                        return Optional.empty();
                     }
+                    if (href == null || href.trim().isEmpty()) {
+                        log.error("Cannot resolve SellerOperator: ProductOffering '{}' has SellerOperator relatedParty but 'href' is missing or empty (id: {})", productOfferingId, id);
+                        return Optional.empty();
+                    }
+                    if (name == null || name.trim().isEmpty()) {
+                        log.error("Cannot resolve SellerOperator: ProductOffering '{}' has SellerOperator relatedParty but 'name' is missing or empty (id: {}, href: {})", productOfferingId, id, href);
+                        return Optional.empty();
+                    }
+                    
+                    log.debug("Successfully resolved SellerOperator from ProductOffering '{}': id={}, href={}, name={}", 
+                        productOfferingId, id, href, name);
+                    return Optional.of(new SellerOperatorInfo(id.trim(), href.trim(), name.trim()));
                 }
             }
 
-            log.warn("SellerOperator not found in ProductOffering.relatedParty for id {}", productOfferingId);
+            log.error("Cannot resolve SellerOperator: ProductOffering '{}' does not contain a relatedParty with role='SellerOperator'", productOfferingId);
+            return Optional.empty();
+        } catch (org.springframework.web.client.HttpClientErrorException e) {
+            log.error("Cannot resolve SellerOperator: HTTP error when calling ProductOffering API for id '{}': {} - {}", 
+                productOfferingId, e.getStatusCode(), e.getMessage());
+            return Optional.empty();
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            log.error("Cannot resolve SellerOperator: Failed to parse ProductOffering JSON response for id '{}': {}", 
+                productOfferingId, e.getMessage());
             return Optional.empty();
         } catch (Exception e) {
-            log.warn("Failed to resolve SellerOperator from ProductOffering {}: {}", productOfferingId, e.getMessage());
+            log.error("Cannot resolve SellerOperator: Unexpected error when resolving from ProductOffering '{}': {} - {}", 
+                productOfferingId, e.getClass().getSimpleName(), e.getMessage(), e);
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Resolve Seller information from ProductOffering by searching for a relatedParty with role="Seller".
+     * Calls the ProductOffering API and extracts id, href, and name from the relatedParty array.
+     * @param productOfferingId the ProductOffering ID to query
+     * @return Optional containing SellerInfo with id, href, and name if found and complete
+     */
+    private Optional<SellerInfo> resolveSellerIdFromProductOffering(String productOfferingId) {
+        try {
+            if (productOfferingId == null || productOfferingId.trim().isEmpty()) {
+                log.error("Cannot resolve Seller: productOfferingId is null or empty");
+                return Optional.empty();
+            }
+
+            String base = tmforumBaseUrl.trim();
+            String poEndpoint = appConfig.getTmforumProductCatalogManagementEndpoint();
+            String url = (base + poEndpoint).replaceAll("/+$", "") + "/" + productOfferingId.trim();
+
+            log.debug("Calling ProductOffering API to resolve Seller: {}", url);
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+            HttpEntity<?> request = new HttpEntity<>(headers);
+
+            ResponseEntity<String> response = restTemplate.exchange(
+                url,
+                HttpMethod.GET,
+                request,
+                String.class
+            );
+
+            String body = response.getBody();
+            if (body == null || body.isEmpty()) {
+                log.error("Cannot resolve Seller: Empty ProductOffering response for id {}", productOfferingId);
+                return Optional.empty();
+            }
+
+            JsonNode root = objectMapper.readTree(body);
+            JsonNode relatedParties = root.get("relatedParty");
+            
+            if (relatedParties == null || !relatedParties.isArray()) {
+                log.error("Cannot resolve Seller: ProductOffering '{}' does not have a relatedParty array", productOfferingId);
+                return Optional.empty();
+            }
+
+            for (JsonNode rp : relatedParties) {
+                String role = rp.hasNonNull("role") ? rp.get("role").asText() : null;
+                if (role != null && QuoteRole.equalsIgnoreCase(role, QuoteRole.SELLER)) {
+                    String id = rp.hasNonNull("id") ? rp.get("id").asText() : null;
+                    String href = rp.hasNonNull("href") ? rp.get("href").asText() : null;
+                    String name = rp.hasNonNull("name") ? rp.get("name").asText() : null;
+                    
+                    // Validate that all three attributes are present and not empty
+                    if (id == null || id.trim().isEmpty()) {
+                        log.error("Cannot resolve Seller: ProductOffering '{}' has Seller relatedParty but 'id' is missing or empty", productOfferingId);
+                        return Optional.empty();
+                    }
+                    if (href == null || href.trim().isEmpty()) {
+                        log.error("Cannot resolve Seller: ProductOffering '{}' has Seller relatedParty but 'href' is missing or empty (id: {})", productOfferingId, id);
+                        return Optional.empty();
+                    }
+                    if (name == null || name.trim().isEmpty()) {
+                        log.error("Cannot resolve Seller: ProductOffering '{}' has Seller relatedParty but 'name' is missing or empty (id: {}, href: {})", productOfferingId, id, href);
+                        return Optional.empty();
+                    }
+                    
+                    log.debug("Successfully resolved Seller from ProductOffering '{}': id={}, href={}, name={}", 
+                        productOfferingId, id, href, name);
+                    return Optional.of(new SellerInfo(id.trim(), href.trim(), name.trim()));
+                }
+            }
+
+            log.error("Cannot resolve Seller: ProductOffering '{}' does not contain a relatedParty with role='Seller'", productOfferingId);
+            return Optional.empty();
+        } catch (org.springframework.web.client.HttpClientErrorException e) {
+            log.error("Cannot resolve Seller: HTTP error when calling ProductOffering API for id '{}': {} - {}", 
+                productOfferingId, e.getStatusCode(), e.getMessage());
+            return Optional.empty();
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            log.error("Cannot resolve Seller: Failed to parse ProductOffering JSON response for id '{}': {}", 
+                productOfferingId, e.getMessage());
+            return Optional.empty();
+        } catch (Exception e) {
+            log.error("Cannot resolve Seller: Unexpected error when resolving from ProductOffering '{}': {} - {}", 
+                productOfferingId, e.getClass().getSimpleName(), e.getMessage(), e);
             return Optional.empty();
         }
     }
@@ -1900,13 +2063,12 @@ public class QuoteServiceImpl implements QuoteService {
     }
 
     /**
-     * Resolve organization name from externalReference.name by calling the Organization API
-     * @param organizationId the organization ID to look up
+     * Resolve buyer organization name from externalReference.name by calling the Organization API
+     * @param organizationId the organization ID to look up (customerIdRef)
      * @return the name from externalReference.name
      * @throws QuoteManagementException if the organization is not found or the name cannot be resolved
      */
-    /*
-    private String resolveOrganizationName(String organizationId) {
+    private String resolveBuyerNameFromOrganization(String organizationId) {
         try {
             if (organizationId == null || organizationId.trim().isEmpty()) {
                 throw new QuoteManagementException(
@@ -1915,7 +2077,7 @@ public class QuoteServiceImpl implements QuoteService {
                 );
             }
 
-            String base = tmforumBaseUrl.trim();
+            String base = appConfig.getTmforumPartyApiBaseUrl().trim();
             String orgEndpoint = appConfig.getTmforumOrganizationEndpoint();
             String url = (base + orgEndpoint).replaceAll("/+$", "") + "/" + organizationId.trim();
 
@@ -1923,6 +2085,8 @@ public class QuoteServiceImpl implements QuoteService {
             headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
             HttpEntity<?> request = new HttpEntity<>(headers);
 
+            log.debug("Calling Organization API to get name for organization ID: {}", organizationId);
+            log.debug("Organization API URL: {}", url);
             ResponseEntity<String> response = restTemplate.exchange(
                 url,
                 HttpMethod.GET,
@@ -1959,15 +2123,28 @@ public class QuoteServiceImpl implements QuoteService {
             );
         } catch (QuoteManagementException e) {
             throw e; // Re-throw our custom exceptions
+        } catch (org.springframework.web.client.HttpClientErrorException e) {
+            // Handle 404 from API specifically
+            if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
+                throw new QuoteManagementException(
+                    "Organization API endpoint not found or organization not found with id: " + organizationId,
+                    HttpStatus.NOT_FOUND,
+                    e
+                );
+            }
+            throw new QuoteManagementException(
+                "Failed to resolve buyer name from Organization API with id " + organizationId + ": " + e.getMessage(),
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                e
+            );
         } catch (Exception e) {
             throw new QuoteManagementException(
-                "Failed to resolve organization name for id " + organizationId + ": " + e.getMessage(),
+                "Failed to resolve buyer name from Organization API with id " + organizationId + ": " + e.getMessage(),
                 HttpStatus.INTERNAL_SERVER_ERROR,
                 e
             );
         }
     }
-    */
 
     private void writeLogToFile(String content) {
         try {
