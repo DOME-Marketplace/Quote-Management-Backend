@@ -885,9 +885,10 @@ public class QuoteServiceImpl implements QuoteService {
                         .message(message)
                         .build();
 
-                    notificationService.sendNotification(notification);
+                    // DISABLED: Notification when attachment is uploaded
+                    // notificationService.sendNotification(notification);
                     
-                    log.info("Notification sent to customer {} about new document upload for quote {}", customerId, quoteId);
+                    // log.info("Notification sent to customer {} about new document upload for quote {}", customerId, quoteId);
                 } else {
                     log.warn("Could not send notification - customerId: {}, providerId: {} (relatedParty data may be missing from PATCH response)", customerId, providerId);
                 }
@@ -1724,8 +1725,9 @@ public class QuoteServiceImpl implements QuoteService {
                     ))
                     .build();
 
-                notificationService.sendNotification(customerNotification);
-                log.info("Status update notification sent to customer {} for quote {}", customerId, quote.getId());
+                // DISABLED: Notification to customer when status changes
+                // notificationService.sendNotification(customerNotification);
+                // log.info("Status update notification sent to customer {} for quote {}", customerId, quote.getId());
             } else {
                 log.warn("Could not send customer notification - customerId: {}, sellerId: {}", customerId, sellerId);
             }
@@ -1744,8 +1746,9 @@ public class QuoteServiceImpl implements QuoteService {
                     ))
                     .build();
 
-                notificationService.sendNotification(sellerNotification);
-                log.info("Status update notification sent to seller {} for quote {}", sellerId, quote.getId());
+                // DISABLED: Notification to seller when status changes
+                // notificationService.sendNotification(sellerNotification);
+                // log.info("Status update notification sent to seller {} for quote {}", sellerId, quote.getId());
             } else {
                 log.warn("Could not send seller notification - customerId: {}, sellerId: {}", customerId, sellerId);
             }
