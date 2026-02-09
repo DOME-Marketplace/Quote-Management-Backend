@@ -2,6 +2,7 @@ package com.dome.quotemanagement.service;
 
 import com.dome.quotemanagement.config.AppConfig;
 import com.dome.quotemanagement.dto.tmforum.AttachmentRefOrValueDTO;
+import com.dome.quotemanagement.util.EmailConstants;
 import com.dome.quotemanagement.dto.tmforum.QuoteDTO;
 import com.dome.quotemanagement.dto.tmforum.QuoteItemDTO;
 import com.dome.quotemanagement.dto.tmforum.NoteDTO;
@@ -610,14 +611,18 @@ public class QuoteServiceImpl implements QuoteService {
 
             // Send notification after successful quote creation
             if (response != null && response.getId() != null) {
+                String productName = resolveProductOfferingName(productOfferingId).orElse("N/A");
+                String requesterTradingName = resolveOrganizationTradingName(customerIdRef).orElse(customerIdRef);
+                String messageBody = String.format(EmailConstants.BODY_NEW_QUOTE_CREATED,
+                        productName,
+                        requesterTradingName,
+                        customerMessage != null ? customerMessage : "");
                 NotificationRequestDTO notification = NotificationRequestDTO.builder()
                     .sender(customerIdRef)
                     .recipient(providerIdRef)
-                    .subject("New Quote Created")
-                    .message("New quote created with ID: " + response.getId() + 
-                            (customerMessage != null ? "\nMessage: " + customerMessage : ""))
+                    .subject(EmailConstants.SUBJECT_NEW_QUOTE_CREATED)
+                    .message(messageBody)
                     .build();
-                
                 notificationService.sendNotification(notification);
             }
             
@@ -1654,21 +1659,27 @@ public class QuoteServiceImpl implements QuoteService {
             
             // Send notification if we found a recipient
             if (recipientId != null) {
-                String subject = "New Note Added to Quote";
-                String message = String.format(
-                    "A new note has been added to quote (ID: %s):\n\n%s\n\nSent by: %s",
-                    quote.getId(),
-                    messageContent,
-                    senderId
-                );
-                
+                String senderTradingName = resolveOrganizationTradingName(senderId).orElse(senderId);
+                String subject;
+                String message;
+                if (messageContent != null && messageContent.startsWith(EmailConstants.PREFIX_ATTACHMENT_UPLOADED)) {
+                    String filename = messageContent.substring(EmailConstants.PREFIX_ATTACHMENT_UPLOADED.length()).trim();
+                    subject = EmailConstants.SUBJECT_NEW_ATTACHMENT_UPLOADED;
+                    message = String.format(EmailConstants.BODY_NEW_ATTACHMENT_UPLOADED, filename, senderTradingName);
+                } else if (messageContent != null && messageContent.startsWith(EmailConstants.PREFIX_STATUS_CHANGED_TO)) {
+                    String status = messageContent.substring(EmailConstants.PREFIX_STATUS_CHANGED_TO.length()).trim();
+                    subject = EmailConstants.SUBJECT_QUOTE_STATUS_UPDATE;
+                    message = String.format(EmailConstants.BODY_QUOTE_STATUS_UPDATE, senderTradingName, status);
+                } else {
+                    subject = EmailConstants.SUBJECT_NEW_NOTE_ADDED;
+                    message = String.format(EmailConstants.BODY_NEW_NOTE_ADDED, senderTradingName, messageContent != null ? messageContent : "");
+                }
                 NotificationRequestDTO notification = NotificationRequestDTO.builder()
                     .sender(senderId)
                     .recipient(recipientId)
                     .subject(subject)
                     .message(message)
                     .build();
-                
                 notificationService.sendNotification(notification);
                 log.info("Sent note update notification - sender: {}, recipient: {}, quoteId: {}", 
                     senderId, recipientId, quote.getId());
@@ -1951,6 +1962,91 @@ public class QuoteServiceImpl implements QuoteService {
         } catch (Exception e) {
             log.error("Cannot resolve Seller: Unexpected error when resolving from ProductOffering '{}': {} - {}", 
                 productOfferingId, e.getClass().getSimpleName(), e.getMessage(), e);
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Resolve ProductOffering name from the TMF ProductOffering API by id.
+     * @param productOfferingId the ProductOffering ID to query
+     * @return Optional with the product offering name if found, empty otherwise
+     */
+    private Optional<String> resolveProductOfferingName(String productOfferingId) {
+        try {
+            if (productOfferingId == null || productOfferingId.trim().isEmpty()) {
+                return Optional.empty();
+            }
+            String base = appConfig.getTmforumProductCatalogApiBaseUrl().trim();
+            String poEndpoint = appConfig.getTmforumProductCatalogManagementEndpoint();
+            String url = (base + poEndpoint).replaceAll("/+$", "") + "/" + productOfferingId.trim();
+            HttpHeaders headers = new HttpHeaders();
+            headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+            HttpEntity<?> request = new HttpEntity<>(headers);
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, request, String.class);
+            String body = response.getBody();
+            if (body == null || body.isEmpty()) {
+                return Optional.empty();
+            }
+            JsonNode root = objectMapper.readTree(body);
+            if (root.hasNonNull("name")) {
+                String name = root.get("name").asText();
+                if (name != null && !name.trim().isEmpty()) {
+                    log.debug("Resolved ProductOffering name '{}' for id {}", name, productOfferingId);
+                    return Optional.of(name.trim());
+                }
+            }
+            return Optional.empty();
+        } catch (Exception e) {
+            log.warn("Could not resolve ProductOffering name for id {}: {}", productOfferingId, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Resolve organization tradingName from the Organization API (tmf-api/party/v4/organization/{id}).
+     * Falls back to externalReference.name if tradingName is not present.
+     * @param organizationId the organization ID to look up
+     * @return Optional with tradingName (or fallback name), empty on failure (e.g. so notification can still be sent)
+     */
+    private Optional<String> resolveOrganizationTradingName(String organizationId) {
+        try {
+            if (organizationId == null || organizationId.trim().isEmpty()) {
+                return Optional.empty();
+            }
+            String base = appConfig.getTmforumPartyApiBaseUrl().trim();
+            String orgEndpoint = appConfig.getTmforumOrganizationEndpoint();
+            String url = (base + orgEndpoint).replaceAll("/+$", "") + "/" + organizationId.trim();
+            HttpHeaders headers = new HttpHeaders();
+            headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+            HttpEntity<?> request = new HttpEntity<>(headers);
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, request, String.class);
+            String body = response.getBody();
+            if (body == null || body.isEmpty()) {
+                return Optional.empty();
+            }
+            JsonNode root = objectMapper.readTree(body);
+            if (root.hasNonNull("tradingName")) {
+                String tradingName = root.get("tradingName").asText();
+                if (tradingName != null && !tradingName.trim().isEmpty()) {
+                    log.debug("Resolved organization tradingName '{}' for id {}", tradingName, organizationId);
+                    return Optional.of(tradingName.trim());
+                }
+            }
+            JsonNode externalReferences = root.get("externalReference");
+            if (externalReferences != null && externalReferences.isArray()) {
+                for (JsonNode extRef : externalReferences) {
+                    if (extRef.hasNonNull("name")) {
+                        String name = extRef.get("name").asText();
+                        if (name != null && !name.trim().isEmpty()) {
+                            log.debug("Using externalReference.name '{}' as fallback for organization id {}", name, organizationId);
+                            return Optional.of(name.trim());
+                        }
+                    }
+                }
+            }
+            return Optional.empty();
+        } catch (Exception e) {
+            log.warn("Could not resolve organization tradingName for id {}: {}", organizationId, e.getMessage());
             return Optional.empty();
         }
     }
