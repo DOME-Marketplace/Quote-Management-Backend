@@ -1669,7 +1669,20 @@ public class QuoteServiceImpl implements QuoteService {
                 } else if (messageContent != null && messageContent.startsWith(EmailConstants.PREFIX_STATUS_CHANGED_TO)) {
                     String status = messageContent.substring(EmailConstants.PREFIX_STATUS_CHANGED_TO.length()).trim();
                     subject = EmailConstants.SUBJECT_QUOTE_STATUS_UPDATE;
-                    message = String.format(EmailConstants.BODY_QUOTE_STATUS_UPDATE, senderTradingName, status);
+                    // Use status-specific template based on the status value
+                    String statusLower = status.toLowerCase();
+                    if ("inprogress".equals(statusLower)) {
+                        message = String.format(EmailConstants.BODY_STATUS_IN_PROGRESS, status, senderTradingName);
+                    } else if ("approved".equals(statusLower)) {
+                        message = String.format(EmailConstants.BODY_STATUS_APPROVED, status, senderTradingName);
+                    } else if ("accepted".equals(statusLower)) {
+                        message = String.format(EmailConstants.BODY_STATUS_ACCEPTED, status, senderTradingName);
+                    } else if ("canceled".equals(statusLower) || "cancelled".equals(statusLower)) {
+                        message = String.format(EmailConstants.BODY_STATUS_CANCELED, status, senderTradingName);
+                    } else {
+                        // Fallback to generic template for other statuses
+                        message = String.format(EmailConstants.BODY_QUOTE_STATUS_UPDATE, senderTradingName, status);
+                    }
                 } else {
                     subject = EmailConstants.SUBJECT_NEW_NOTE_ADDED;
                     message = String.format(EmailConstants.BODY_NEW_NOTE_ADDED, senderTradingName, messageContent != null ? messageContent : "");
