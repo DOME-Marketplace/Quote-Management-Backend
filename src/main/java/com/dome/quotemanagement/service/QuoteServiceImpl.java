@@ -1437,50 +1437,79 @@ public class QuoteServiceImpl implements QuoteService {
             
             // Add relatedParty array at the Quote level for Seller, SellerOperator, Customer and BuyerOperator
             ArrayNode relatedPartyArray = objectMapper.createArrayNode();
-            
-            // Resolve Seller from ProductOffering.relatedParty(role=Seller)
-            SellerInfo sellerInfo = resolveSellerIdFromProductOffering(productOfferingId)
-                .orElseThrow(() -> {
-                    String errorMsg = String.format(
-                        "Cannot create quote: Seller not found or incomplete in ProductOffering.relatedParty for productOfferingId '%s'. " +
-                        "The ProductOffering must contain a relatedParty with role='Seller' having id, href, and name attributes.",
-                        productOfferingId
-                    );
-                    log.error(errorMsg);
-                    return new QuoteManagementException(errorMsg, HttpStatus.BAD_REQUEST);
-                });
 
-            ObjectNode seller = objectMapper.createObjectNode();
-            seller.put("id", sellerInfo.id());
-            seller.put("href", sellerInfo.href());
-            seller.put("role", QuoteRole.SELLER);
-            seller.put("name", sellerInfo.name());
-            seller.put("@referredType", "organization");
-            relatedPartyArray.add(seller);
-            log.info("Added Seller to quote-level relatedParty array with ID: {}, href: {}, name: {} (from productOffering)",
-                sellerInfo.id(), sellerInfo.href(), sellerInfo.name());
+            // Add Seller: use providerIdRef if provided (for tendering quotes), otherwise resolve from ProductOffering
+            if (providerIdRef != null && !providerIdRef.trim().isEmpty()) {
+                ObjectNode seller = objectMapper.createObjectNode();
+                seller.put("id", providerIdRef);
+                seller.put("href", providerIdRef);
+                seller.put("role", QuoteRole.SELLER);
+                seller.put("name", providerIdRef);
+                seller.put("@referredType", "organization");
+                relatedPartyArray.add(seller);
+                log.info("Added Seller to quote-level relatedParty array with ID: {} (from providerIdRef)", providerIdRef);
+            } else if (productOfferingId != null && !productOfferingId.trim().isEmpty()) {
+                // Fallback: resolve Seller from ProductOffering for tailored quotes
+                SellerInfo sellerInfo = resolveSellerIdFromProductOffering(productOfferingId)
+                    .orElseThrow(() -> {
+                        String errorMsg = String.format(
+                            "Cannot create quote: Seller not found or incomplete in ProductOffering.relatedParty for productOfferingId '%s'. " +
+                            "The ProductOffering must contain a relatedParty with role='Seller' having id, href, and name attributes.",
+                            productOfferingId
+                        );
+                        log.error(errorMsg);
+                        return new QuoteManagementException(errorMsg, HttpStatus.BAD_REQUEST);
+                    });
 
-            // Resolve SellerOperator from ProductOffering.relatedParty(role=SellerOperator)
-            SellerOperatorInfo sellerOperatorInfo = resolveSellerOperatorIdFromProductOffering(productOfferingId)
-                .orElseThrow(() -> {
-                    String errorMsg = String.format(
-                        "Cannot create quote: SellerOperator not found or incomplete in ProductOffering.relatedParty for productOfferingId '%s'. " +
-                        "The ProductOffering must contain a relatedParty with role='SellerOperator' having id, href, and name attributes.",
-                        productOfferingId
-                    );
-                    log.error(errorMsg);
-                    return new QuoteManagementException(errorMsg, HttpStatus.BAD_REQUEST);
-                });
+                ObjectNode seller = objectMapper.createObjectNode();
+                seller.put("id", sellerInfo.id());
+                seller.put("href", sellerInfo.href());
+                seller.put("role", QuoteRole.SELLER);
+                seller.put("name", sellerInfo.name());
+                seller.put("@referredType", "organization");
+                relatedPartyArray.add(seller);
+                log.info("Added Seller to quote-level relatedParty array with ID: {}, href: {}, name: {} (from productOffering)",
+                    sellerInfo.id(), sellerInfo.href(), sellerInfo.name());
+            }
+
+            // Resolve SellerOperator from ProductOffering.relatedParty(role=SellerOperator); fallback to config DID
+            String sellerOperatorId;
+            String sellerOperatorHref;
+            String sellerOperatorName;
+            String sellerOperatorSource;
+
+            if (productOfferingId != null && !productOfferingId.trim().isEmpty()) {
+                Optional<SellerOperatorInfo> sellerOperatorInfoOpt = resolveSellerOperatorIdFromProductOffering(productOfferingId);
+                if (sellerOperatorInfoOpt.isPresent()) {
+                    SellerOperatorInfo sellerOperatorInfo = sellerOperatorInfoOpt.get();
+                    sellerOperatorId = sellerOperatorInfo.id();
+                    sellerOperatorHref = sellerOperatorInfo.href();
+                    sellerOperatorName = sellerOperatorInfo.name();
+                    sellerOperatorSource = "productOffering";
+                } else {
+                    // Fallback to config DID if not found in ProductOffering
+                    sellerOperatorId = appConfig.getDidIdentifier();
+                    sellerOperatorHref = appConfig.getDidIdentifier();
+                    sellerOperatorName = appConfig.getDidIdentifier();
+                    sellerOperatorSource = "config";
+                }
+            } else {
+                // No ProductOffering (e.g., tendering quotes), use config DID
+                sellerOperatorId = appConfig.getDidIdentifier();
+                sellerOperatorHref = appConfig.getDidIdentifier();
+                sellerOperatorName = appConfig.getDidIdentifier();
+                sellerOperatorSource = "config";
+            }
 
             ObjectNode sellerOperator = objectMapper.createObjectNode();
-            sellerOperator.put("id", sellerOperatorInfo.id());
-            sellerOperator.put("href", sellerOperatorInfo.href());
+            sellerOperator.put("id", sellerOperatorId);
+            sellerOperator.put("href", sellerOperatorHref);
             sellerOperator.put("role", QuoteRole.SELLER_OPERATOR);
-            sellerOperator.put("name", sellerOperatorInfo.name());
+            sellerOperator.put("name", sellerOperatorName);
             sellerOperator.put("@referredType", "organization");
             relatedPartyArray.add(sellerOperator);
-            log.info("Added SellerOperator to quote-level relatedParty array with ID: {}, href: {}, name: {} (from productOffering)",
-                sellerOperatorInfo.id(), sellerOperatorInfo.href(), sellerOperatorInfo.name());
+            log.info("Added SellerOperator to quote-level relatedParty array with ID: {}, href: {}, name: {} (source: {})",
+                sellerOperatorId, sellerOperatorHref, sellerOperatorName, sellerOperatorSource);
             
             // Add customer and buyer operator on the quote-level relatedParty
             if (customerIdRef != null && !customerIdRef.trim().isEmpty()) {
