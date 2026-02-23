@@ -22,6 +22,7 @@ import org.springframework.web.client.RestTemplate;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -73,6 +74,50 @@ public class QuoteExpirationScheduler {
             }
         } catch (Exception e) {
             log.error("Error checking coordinator tender status: {}", e.getMessage(), e);
+        }
+    }
+
+    @Scheduled(cron = "0 0 0 * * ?") // Run at midnight every day
+    public void cancelPendingTendersAfterCoordinatorFulfillmentDate() {
+        log.info("Starting scheduled check: cancel pending tender quotes when coordinator expectedFulfillmentStartDate has passed");
+        try {
+            String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteListEndpoint();
+            QuoteDTO[] quotes = restTemplate.getForObject(url, QuoteDTO[].class);
+            List<QuoteDTO> allQuotes = Arrays.asList(quotes != null ? quotes : new QuoteDTO[0]);
+
+            LocalDateTime now = LocalDateTime.now();
+
+            // Find coordinator quotes whose expectedFulfillmentStartDate has passed
+            for (QuoteDTO coordinatorQuote : allQuotes) {
+                if (!"coordinator".equals(coordinatorQuote.getCategory())) {
+                    continue;
+                }
+                if (coordinatorQuote.getExpectedFulfillmentStartDate() == null
+                        || !now.isAfter(coordinatorQuote.getExpectedFulfillmentStartDate())) {
+                    continue;
+                }
+
+                String coordinatorId = coordinatorQuote.getId();
+                if (coordinatorId == null || coordinatorId.trim().isEmpty()) {
+                    continue;
+                }
+
+                // Find tender quotes with externalId == coordinator quote id, state == pending
+                List<QuoteDTO> pendingTenders = allQuotes.stream()
+                        .filter(q -> "tender".equals(q.getCategory()))
+                        .filter(q -> coordinatorId.equals(q.getExternalId()))
+                        .filter(q -> "pending".equals(q.getState()))
+                        .collect(Collectors.toList());
+
+                for (QuoteDTO tenderQuote : pendingTenders) {
+                    log.info("Cancelling pending tender quote {} (externalId={}) - coordinator {} expectedFulfillmentStartDate passed",
+                            tenderQuote.getId(), coordinatorId, coordinatorId);
+                    updateTenderQuoteStatus(tenderQuote, "cancelled",
+                            "Tender automatically cancelled - coordinator expected fulfillment start date has been reached.");
+                }
+            }
+        } catch (Exception e) {
+            log.error("Error cancelling pending tenders after coordinator fulfillment date: {}", e.getMessage(), e);
         }
     }
 
