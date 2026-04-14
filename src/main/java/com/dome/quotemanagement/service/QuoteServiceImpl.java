@@ -27,7 +27,6 @@ import org.springframework.web.util.UriComponentsBuilder;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Arrays;
-import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -55,18 +54,6 @@ public class QuoteServiceImpl implements QuoteService {
      * Record to hold Seller information from ProductOffering
      */
     private record SellerInfo(String id, String href, String name) {}
-
-    /**
-     * Record to hold document upload output values.
-     */
-    private record DocumentUploadResult(
-            String quoteReference,
-            String documentId,
-            String documentHref,
-            String documentName,
-            String mimeType,
-            long fileSize
-    ) {}
     
     @Value("${tmforum.api.base-url}")
     private String tmforumBaseUrl;
@@ -829,9 +816,8 @@ public class QuoteServiceImpl implements QuoteService {
             
             QuoteDTO currentQuote = currentQuoteOpt.get();
             
-            // Upload the file to Document API and use the document reference in the quote attachment.
-            DocumentUploadResult documentUploadResult = uploadDocumentAndGetReference(file, description);
-            AttachmentRefOrValueDTO attachment = createAttachmentFromDocumentReference(documentUploadResult, description);
+            // Convert file to AttachmentRefOrValueDTO
+            AttachmentRefOrValueDTO attachment = createAttachmentFromFile(file, description);
             
             // Create a minimal update payload with the new attachment
             String jsonPayload = buildAttachmentUpdateJson(attachment, currentQuote);
@@ -857,17 +843,12 @@ public class QuoteServiceImpl implements QuoteService {
             
             log.info("Received updated quote from TMForum API: {}", updatedQuote);
 
-            // Wait until the quote attachment reference is actually persisted before returning success.
+            // CRITICAL: Wait until the attachment is actually persisted before returning success
+            // The TMForum API might return success before async processing completes
             if (updatedQuote != null && attachmentVerificationEnabled) {
-                log.info("Waiting for attachment reference to be persisted before returning success...");
-                waitForAttachmentPersistence(
-                        quoteId,
-                        documentUploadResult.quoteReference(),
-                        file.getOriginalFilename(),
-                        attachmentVerificationMaxAttempts,
-                        attachmentVerificationDelayMs
-                );
-                log.info("Attachment reference persistence confirmed for quote: {} and file: {}", quoteId, file.getOriginalFilename());
+                log.info("Waiting for attachment to be persisted before returning success...");
+                waitForAttachmentPersistence(quoteId, file.getOriginalFilename(), attachmentVerificationMaxAttempts, attachmentVerificationDelayMs);
+                log.info("Attachment persistence confirmed for quote: {} and file: {}", quoteId, file.getOriginalFilename());
             }
 
             // Send notification to customer about the new document
@@ -1263,16 +1244,6 @@ public class QuoteServiceImpl implements QuoteService {
                 // Add the new attachment (this will overwrite any existing attachment)
                 ObjectNode newAttachmentObject = objectMapper.createObjectNode();
                 newAttachmentObject.put("@type", "AttachmentRefOrValue");
-
-                if (attachment.getId() != null) {
-                    newAttachmentObject.put("id", attachment.getId());
-                }
-                if (attachment.getHref() != null) {
-                    newAttachmentObject.put("href", attachment.getHref());
-                }
-                if (attachment.getUrl() != null) {
-                    newAttachmentObject.put("url", attachment.getUrl());
-                }
                 
                 if (attachment.getContent() != null) {
                     newAttachmentObject.put("content", attachment.getContent());
@@ -1307,16 +1278,6 @@ public class QuoteServiceImpl implements QuoteService {
                 ArrayNode attachmentArray = objectMapper.createArrayNode();
                 ObjectNode newAttachmentObject = objectMapper.createObjectNode();
                 newAttachmentObject.put("@type", "AttachmentRefOrValue");
-
-                if (attachment.getId() != null) {
-                    newAttachmentObject.put("id", attachment.getId());
-                }
-                if (attachment.getHref() != null) {
-                    newAttachmentObject.put("href", attachment.getHref());
-                }
-                if (attachment.getUrl() != null) {
-                    newAttachmentObject.put("url", attachment.getUrl());
-                }
                 
                 if (attachment.getContent() != null) {
                     newAttachmentObject.put("content", attachment.getContent());
@@ -1643,97 +1604,45 @@ public class QuoteServiceImpl implements QuoteService {
     }
         
     /**
-     * Upload file content to Document API and return a quote attachment reference.
+     * Create AttachmentRefOrValueDTO from uploaded file
      */
-    private DocumentUploadResult uploadDocumentAndGetReference(MultipartFile file, String description) {
+    private AttachmentRefOrValueDTO createAttachmentFromFile(MultipartFile file, String description) {
         try {
-            ObjectNode documentJson = objectMapper.createObjectNode();
-            documentJson.put("name", file.getOriginalFilename());
-            documentJson.put("description", description != null && !description.trim().isEmpty()
-                    ? description
-                    : "Quote attachment: " + file.getOriginalFilename());
-            documentJson.put("version", "1.0");
-            documentJson.put("lifecycleStatus", "active");
-
-            ArrayNode attachmentArray = objectMapper.createArrayNode();
-            ObjectNode attachmentObject = objectMapper.createObjectNode();
-            attachmentObject.put("name", file.getOriginalFilename());
-            attachmentObject.put("mimeType", file.getContentType());
-            attachmentObject.put("content", Base64.getEncoder().encodeToString(file.getBytes()));
-            attachmentArray.add(attachmentObject);
-            documentJson.set("attachment", attachmentArray);
-
-            String documentApiUrl = appConfig.getTmforumDocumentApiBaseUrl().trim() + appConfig.getTmforumDocumentEndpoint();
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            headers.set("Accept", "application/json");
-
-            HttpEntity<String> request = new HttpEntity<>(objectMapper.writeValueAsString(documentJson), headers);
-            log.info("Sending document upload request to URL: {}", documentApiUrl);
-
-            ResponseEntity<String> response = restTemplate.exchange(
-                    documentApiUrl,
-                    HttpMethod.POST,
-                    request,
-                    String.class
-            );
-
-            if (response.getBody() == null || response.getBody().isBlank()) {
-                throw new RuntimeException("Document API returned an empty response body");
+            // Encode file content as base64
+            byte[] fileBytes = file.getBytes();
+            String base64Content = java.util.Base64.getEncoder().encodeToString(fileBytes);
+            
+            // Create attachment DTO with embedded base64 content
+            AttachmentRefOrValueDTO attachment = new AttachmentRefOrValueDTO();
+            attachment.setType("AttachmentRefOrValue");
+            attachment.setName(file.getOriginalFilename());
+            attachment.setMimeType(file.getContentType());
+            
+            // Create proper Quantity object for size (TMForum spec compliance)
+            com.dome.quotemanagement.dto.tmforum.QuantityDTO sizeQuantity = 
+                new com.dome.quotemanagement.dto.tmforum.QuantityDTO(
+                    (float) file.getSize(), 
+                    "bytes"
+                );
+            attachment.setSize(sizeQuantity);
+            
+            attachment.setContent(base64Content); // Use content property with base64 encoded file
+            
+            if (description != null && !description.trim().isEmpty()) {
+                attachment.setDescription(description);
+            } else {
+                attachment.setDescription("PDF document: " + file.getOriginalFilename());
             }
-
-            JsonNode responseJson = objectMapper.readTree(response.getBody());
-            String documentId = responseJson.path("id").asText(null);
-            String documentHref = responseJson.path("href").asText(null);
-            String quoteReference = (documentHref != null && !documentHref.isBlank()) ? documentHref : documentId;
-
-            if (quoteReference == null || quoteReference.isBlank()) {
-                throw new RuntimeException("Document API response did not include id or href");
-            }
-
-            String documentName = responseJson.path("name").asText(file.getOriginalFilename());
-            String mimeType = file.getContentType();
-            if (responseJson.has("attachment") && responseJson.path("attachment").isArray() && responseJson.path("attachment").size() > 0) {
-                JsonNode firstAttachment = responseJson.path("attachment").get(0);
-                if (firstAttachment.path("name").isTextual()) {
-                    documentName = firstAttachment.path("name").asText(documentName);
-                }
-                if (firstAttachment.path("mimeType").isTextual()) {
-                    mimeType = firstAttachment.path("mimeType").asText(mimeType);
-                }
-            }
-
-            log.info("Document uploaded successfully - reference: {}, documentId: {}", quoteReference, documentId);
-            return new DocumentUploadResult(quoteReference, documentId, documentHref, documentName, mimeType, file.getSize());
+            
+            log.info("Created attachment with base64 content - file: {}, size: {} bytes", 
+                    file.getOriginalFilename(), file.getSize());
+            
+            return attachment;
+            
         } catch (Exception e) {
-            log.error("Error uploading document to Document API: {}", e.getMessage(), e);
-            throw new RuntimeException("Failed to upload document: " + e.getMessage(), e);
+            log.error("Error creating attachment from file: {}", e.getMessage());
+            throw new RuntimeException("Failed to process uploaded file: " + e.getMessage(), e);
         }
-    }
-
-    /**
-     * Create quote attachment payload from a Document API reference.
-     */
-    private AttachmentRefOrValueDTO createAttachmentFromDocumentReference(DocumentUploadResult uploadResult, String description) {
-        AttachmentRefOrValueDTO attachment = new AttachmentRefOrValueDTO();
-        attachment.setType("AttachmentRefOrValue");
-        attachment.setId(uploadResult.documentId());
-        attachment.setHref(uploadResult.documentHref());
-        attachment.setContent(uploadResult.quoteReference());
-        attachment.setName(uploadResult.documentName());
-        attachment.setMimeType(uploadResult.mimeType());
-
-        com.dome.quotemanagement.dto.tmforum.QuantityDTO sizeQuantity =
-                new com.dome.quotemanagement.dto.tmforum.QuantityDTO((float) uploadResult.fileSize(), "bytes");
-        attachment.setSize(sizeQuantity);
-
-        if (description != null && !description.trim().isEmpty()) {
-            attachment.setDescription(description);
-        } else {
-            attachment.setDescription("Document reference for: " + uploadResult.documentName());
-        }
-
-        return attachment;
     }
 
     /**
@@ -2605,7 +2514,7 @@ public class QuoteServiceImpl implements QuoteService {
      * The TMForum API might return success before async processing completes
      * This method will block until the attachment is confirmed or timeout occurs
      */
-    private void waitForAttachmentPersistence(String quoteId, String documentReference, String fileName, int maxAttempts, int delayMs) {
+    private void waitForAttachmentPersistence(String quoteId, String fileName, int maxAttempts, int delayMs) {
         for (int i = 0; i < maxAttempts; i++) {
             try {
                 // Wait before checking (except for first attempt)
@@ -2623,13 +2532,15 @@ public class QuoteServiceImpl implements QuoteService {
                         for (QuoteItemDTO quoteItem : verificationQuote.getQuoteItem()) {
                             if (quoteItem.getAttachment() != null) {
                                 for (AttachmentRefOrValueDTO attachment : quoteItem.getAttachment()) {
-                                    boolean nameMatches = attachment.getName() != null && attachment.getName().equals(fileName);
-                                    boolean referenceMatches = attachment.getContent() != null && attachment.getContent().equals(documentReference);
-                                    boolean hasReference = attachment.getContent() != null && !attachment.getContent().isEmpty();
-
-                                    if ((nameMatches || referenceMatches) && hasReference) {
-                                        log.info("Attachment reference confirmed as persisted on attempt {}: {}", i + 1, documentReference);
-                                        return; // Success - attachment reference found
+                                    if (attachment.getName() != null && attachment.getName().equals(fileName)) {
+                                        // Additional verification: check if attachment has content
+                                        boolean hasContent = attachment.getContent() != null && !attachment.getContent().isEmpty();
+                                        boolean hasSize = attachment.getSize() != null && attachment.getSize().getAmount() > 0;
+                                        
+                                        if (hasContent && hasSize) {
+                                            log.info("Attachment confirmed as persisted on attempt {}: {}", i + 1, fileName);
+                                            return; // Success - attachment found with content
+                                        }
                                     }
                                 }
                             }
@@ -2637,7 +2548,7 @@ public class QuoteServiceImpl implements QuoteService {
                     }
                 }
                 
-                log.warn("Attachment reference not yet persisted, attempt {} of {}: {}", i + 1, maxAttempts, documentReference);
+                log.warn("Attachment not yet persisted, attempt {} of {}: {}", i + 1, maxAttempts, fileName);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 log.error("Attachment persistence check interrupted", e);
@@ -2648,9 +2559,9 @@ public class QuoteServiceImpl implements QuoteService {
         }
         
         // If we get here, attachment was not found after all attempts
-        log.error("Attachment reference was not persisted after {} attempts and {} seconds total wait time for file: {} and reference: {}", 
-                maxAttempts, (maxAttempts * delayMs) / 1000, fileName, documentReference);
-        throw new RuntimeException("File upload failed: attachment reference was not persisted within timeout period. Please try again.");
+        log.error("Attachment was not persisted after {} attempts and {} seconds total wait time for file: {}", 
+                maxAttempts, (maxAttempts * delayMs) / 1000, fileName);
+        throw new RuntimeException("File upload failed: attachment was not persisted within timeout period. Please try again.");
     }
 }
 
