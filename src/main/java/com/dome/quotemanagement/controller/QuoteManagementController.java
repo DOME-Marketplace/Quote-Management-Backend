@@ -383,7 +383,7 @@ public class QuoteManagementController {
     @PatchMapping(value = "/addAttachmentToQuote/{id}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @Operation(
         summary = "Add attachment to quote", 
-        description = "Adds a PDF attachment to the quote. Only PDF files up to 100MB are allowed. Backend calls: /quote/{id}"
+        description = "Uploads a PDF file through TMForum Document API and stores the document reference in the quote attachment. Only PDF files up to 100MB are allowed."
     )
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "Quote attachment added successfully",
