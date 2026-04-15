@@ -37,7 +37,7 @@ public class QuoteExpirationScheduler {
     @Value("${tmforum.api.base-url}")
     private String tmforumBaseUrl;
 
-    @Scheduled(cron = "0 0 0 * * ?") // Run at midnight every day
+    @Scheduled(cron = "0 0 0/2 * * ?") // Run every 2 hours
     public void checkExpiredQuotes() {
         log.info("Starting scheduled check for expired quotes");
         try {
@@ -57,7 +57,7 @@ public class QuoteExpirationScheduler {
         }
     }
 
-    @Scheduled(cron = "0 0 0 * * ?") // Run at midnight every day
+    @Scheduled(cron = "0 0 0/2 * * ?") // Run every 2 hours
     public void checkTenderQuotesStatus() {
         log.info("Starting scheduled check for coordinator tender status updates");
         try {
@@ -77,7 +77,7 @@ public class QuoteExpirationScheduler {
         }
     }
 
-    @Scheduled(cron = "0 0 0 * * ?") // Run at midnight every day
+    @Scheduled(cron = "0 0 0/2 * * ?") // Run every 2 hours
     public void cancelPendingTendersAfterCoordinatorFulfillmentDate() {
         log.info("Starting scheduled check: cancel pending tender quotes when coordinator expectedFulfillmentStartDate has passed");
         try {
@@ -106,7 +106,7 @@ public class QuoteExpirationScheduler {
                 List<QuoteDTO> pendingTenders = allQuotes.stream()
                         .filter(q -> "tender".equals(q.getCategory()))
                         .filter(q -> coordinatorId.equals(q.getExternalId()))
-                        .filter(q -> "pending".equals(q.getState()))
+                        .filter(q -> hasQuoteItemState(q, "pending"))
                         .collect(Collectors.toList());
 
                 for (QuoteDTO tenderQuote : pendingTenders) {
@@ -129,7 +129,7 @@ public class QuoteExpirationScheduler {
         LocalDateTime completionDate = quote.getRequestedQuoteCompletionDate();
         LocalDateTime now = LocalDateTime.now();
 
-        return now.isAfter(completionDate) && "inProgress".equals(quote.getState());
+        return now.isAfter(completionDate) && hasQuoteItemState(quote, "inProgress");
     }
 
     private void checkAndUpdateTenderQuoteStatus(QuoteDTO quote) {
@@ -137,10 +137,9 @@ public class QuoteExpirationScheduler {
         
         try {
             LocalDateTime now = LocalDateTime.now();
-            String currentState = quote.getState();
             
             // Check if we need to update to "approved" (when expectedFulfillmentStartDate is passed)
-            if ("inProgress".equals(currentState) && 
+            if (hasQuoteItemState(quote, "inProgress") && 
                 quote.getExpectedFulfillmentStartDate() != null &&
                 now.isAfter(quote.getExpectedFulfillmentStartDate())) {
                 
@@ -149,7 +148,7 @@ public class QuoteExpirationScheduler {
                     "Tender automatically approved - expected fulfillment start date has been reached.");
             }
             // Check if we need to update to "accepted" (when effectiveQuoteCompletionDate is passed)
-            else if ("approved".equals(currentState) && 
+            else if (hasQuoteItemState(quote, "approved") && 
                      quote.getEffectiveQuoteCompletionDate() != null &&
                      now.isAfter(quote.getEffectiveQuoteCompletionDate())) {
                 
@@ -320,15 +319,40 @@ public class QuoteExpirationScheduler {
     private String buildStatusUpdateJson(String statusValue, QuoteDTO currentQuote) {
         try {
             ObjectNode updateJson = objectMapper.createObjectNode();
-            
-            // Update only the main quote state, not the quoteItem states
-            updateJson.put("state", statusValue);
+            ArrayNode quoteItemArray = objectMapper.createArrayNode();
+
+            if (currentQuote.getQuoteItem() != null && !currentQuote.getQuoteItem().isEmpty()) {
+                for (QuoteItemDTO quoteItem : currentQuote.getQuoteItem()) {
+                    ObjectNode quoteItemJson = objectMapper.createObjectNode();
+                    quoteItemJson.put("state", statusValue);
+
+                    if (quoteItem.getId() != null) {
+                        quoteItemJson.put("id", quoteItem.getId());
+                    }
+
+                    quoteItemArray.add(quoteItemJson);
+                }
+            } else {
+                ObjectNode quoteItemJson = objectMapper.createObjectNode();
+                quoteItemJson.put("@type", "QuoteItem");
+                quoteItemJson.put("state", statusValue);
+                quoteItemArray.add(quoteItemJson);
+            }
+
+            updateJson.set("quoteItem", quoteItemArray);
             
             return objectMapper.writeValueAsString(updateJson);
         } catch (Exception e) {
             log.error("Error building status update JSON: {}", e.getMessage());
             throw new RuntimeException("Failed to build status update JSON", e);
         }
+    }
+
+    private boolean hasQuoteItemState(QuoteDTO quote, String expectedState) {
+        return quote.getQuoteItem() != null
+                && quote.getQuoteItem().stream()
+                .map(QuoteItemDTO::getState)
+                .anyMatch(expectedState::equals);
     }
 
     private String buildNoteUpdateJson(String messageContent, String userId, QuoteDTO currentQuote) {
