@@ -106,7 +106,7 @@ public class QuoteExpirationScheduler {
                 List<QuoteDTO> pendingTenders = allQuotes.stream()
                         .filter(q -> "tender".equals(q.getCategory()))
                         .filter(q -> coordinatorId.equals(q.getExternalId()))
-                        .filter(q -> hasQuoteItemState(q, "pending"))
+                        .filter(q -> "pending".equals(q.getState()))
                         .collect(Collectors.toList());
 
                 for (QuoteDTO tenderQuote : pendingTenders) {
@@ -129,7 +129,7 @@ public class QuoteExpirationScheduler {
         LocalDateTime completionDate = quote.getRequestedQuoteCompletionDate();
         LocalDateTime now = LocalDateTime.now();
 
-        return now.isAfter(completionDate) && hasQuoteItemState(quote, "inProgress");
+        return now.isAfter(completionDate) && "inProgress".equals(quote.getState());
     }
 
     private void checkAndUpdateTenderQuoteStatus(QuoteDTO quote) {
@@ -137,7 +137,7 @@ public class QuoteExpirationScheduler {
         
         try {
             LocalDateTime now = LocalDateTime.now();
-            String currentState = getCurrentQuoteItemState(quote);
+            String currentState = quote.getState();
             
             // Check if we need to update to "approved" (when expectedFulfillmentStartDate is passed)
             if ("inProgress".equals(currentState) && 
@@ -161,25 +161,6 @@ public class QuoteExpirationScheduler {
         } catch (Exception e) {
             log.error("Error checking coordinator tender status for quote {}: {}", quote.getId(), e.getMessage(), e);
         }
-    }
-
-    private boolean hasQuoteItemState(QuoteDTO quote, String expectedState) {
-        return quote.getQuoteItem() != null
-                && quote.getQuoteItem().stream()
-                .map(QuoteItemDTO::getState)
-                .anyMatch(expectedState::equals);
-    }
-
-    private String getCurrentQuoteItemState(QuoteDTO quote) {
-        if (quote.getQuoteItem() == null || quote.getQuoteItem().isEmpty()) {
-            return null;
-        }
-
-        return quote.getQuoteItem().stream()
-                .map(QuoteItemDTO::getState)
-                .filter(state -> state != null && !state.trim().isEmpty())
-                .findFirst()
-                .orElse(null);
     }
 
     private void updateTenderQuoteStatus(QuoteDTO quote, String newStatus, String noteMessage) {
@@ -339,39 +320,10 @@ public class QuoteExpirationScheduler {
     private String buildStatusUpdateJson(String statusValue, QuoteDTO currentQuote) {
         try {
             ObjectNode updateJson = objectMapper.createObjectNode();
-            ArrayNode quoteItemArray = objectMapper.createArrayNode();
-
-            // Update quoteItem states instead of root-level quote state
-            if (currentQuote.getQuoteItem() != null && !currentQuote.getQuoteItem().isEmpty()) {
-                for (QuoteItemDTO quoteItem : currentQuote.getQuoteItem()) {
-                    ObjectNode quoteItemJson = objectMapper.createObjectNode();
-                    quoteItemJson.put("state", statusValue);
-
-                    if (quoteItem.getId() != null) {
-                        quoteItemJson.put("id", quoteItem.getId());
-                    }
-                    if (quoteItem.getAction() != null) {
-                        quoteItemJson.put("action", quoteItem.getAction());
-                    }
-                    if (quoteItem.getQuantity() != null) {
-                        quoteItemJson.put("quantity", quoteItem.getQuantity());
-                    }
-                    if (quoteItem.getType() != null) {
-                        quoteItemJson.put("@type", quoteItem.getType());
-                    }
-
-                    quoteItemArray.add(quoteItemJson);
-                }
-            } else {
-                ObjectNode quoteItemJson = objectMapper.createObjectNode();
-                quoteItemJson.put("@type", "QuoteItem");
-                quoteItemJson.put("action", "add");
-                quoteItemJson.put("quantity", 1);
-                quoteItemJson.put("state", statusValue);
-                quoteItemArray.add(quoteItemJson);
-            }
-
-            updateJson.set("quoteItem", quoteItemArray);
+            
+            // Update only the main quote state, not the quoteItem states
+            updateJson.put("state", statusValue);
+            
             return objectMapper.writeValueAsString(updateJson);
         } catch (Exception e) {
             log.error("Error building status update JSON: {}", e.getMessage());
