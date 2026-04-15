@@ -37,7 +37,7 @@ public class QuoteExpirationScheduler {
     @Value("${tmforum.api.base-url}")
     private String tmforumBaseUrl;
 
-    @Scheduled(cron = "0 0 0 * * ?") // Run at midnight every day
+    @Scheduled(cron = "0 0 0/2 * * ?") // Run every 2 hours
     public void checkExpiredQuotes() {
         log.info("Starting scheduled check for expired quotes");
         try {
@@ -57,7 +57,7 @@ public class QuoteExpirationScheduler {
         }
     }
 
-    @Scheduled(cron = "0 0 0 * * ?") // Run at midnight every day
+    @Scheduled(cron = "0 0 0/2 * * ?") // Run every 2 hours
     public void checkTenderQuotesStatus() {
         log.info("Starting scheduled check for coordinator tender status updates");
         try {
@@ -77,7 +77,7 @@ public class QuoteExpirationScheduler {
         }
     }
 
-    @Scheduled(cron = "0 0 0 * * ?") // Run at midnight every day
+    @Scheduled(cron = "0 0 0/2 * * ?") // Run every 2 hours
     public void cancelPendingTendersAfterCoordinatorFulfillmentDate() {
         log.info("Starting scheduled check: cancel pending tender quotes when coordinator expectedFulfillmentStartDate has passed");
         try {
