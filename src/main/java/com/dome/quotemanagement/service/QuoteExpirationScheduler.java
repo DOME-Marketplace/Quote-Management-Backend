@@ -37,7 +37,7 @@ public class QuoteExpirationScheduler {
     @Value("${tmforum.api.base-url}")
     private String tmforumBaseUrl;
 
-    @Scheduled(cron = "0 0 0/2 * * ?") // Run every 2 hours
+    @Scheduled(cron = "0 0 * * * ?") // Run every 1 hour
     public void checkExpiredQuotes() {
         log.info("Starting scheduled check for expired quotes");
         try {
@@ -57,7 +57,7 @@ public class QuoteExpirationScheduler {
         }
     }
 
-    @Scheduled(cron = "0 0 0/2 * * ?") // Run every 2 hours
+    @Scheduled(cron = "0 0 * * * ?") // Run every 1 hour
     public void checkTenderQuotesStatus() {
         log.info("Starting scheduled check for coordinator tender status updates");
         try {
@@ -66,9 +66,9 @@ public class QuoteExpirationScheduler {
             QuoteDTO[] quotes = restTemplate.getForObject(url, QuoteDTO[].class);
             List<QuoteDTO> allQuotes = Arrays.asList(quotes != null ? quotes : new QuoteDTO[0]);
 
-            // Check each tender quote
+            // Check each coordinator quote
             for (QuoteDTO quote : allQuotes) {
-                if ("tender".equals(quote.getCategory()) || "coordinator".equals(quote.getCategory())) {
+                if ("coordinator".equals(quote.getCategory())) {
                     checkAndUpdateTenderQuoteStatus(quote);
                 }
             }
@@ -77,7 +77,7 @@ public class QuoteExpirationScheduler {
         }
     }
 
-    @Scheduled(cron = "0 0 0/2 * * ?") // Run every 2 hours
+    @Scheduled(cron = "0 0 * * * ?") // Run every 1 hour
     public void cancelPendingTendersAfterCoordinatorFulfillmentDate() {
         log.info("Starting scheduled check: cancel pending tender quotes when coordinator expectedFulfillmentStartDate has passed");
         try {
