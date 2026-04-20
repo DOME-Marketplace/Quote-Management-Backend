@@ -113,7 +113,8 @@ public class QuoteExpirationScheduler {
                     log.info("Cancelling pending tender quote {} (externalId={}) - coordinator {} expectedFulfillmentStartDate passed",
                             tenderQuote.getId(), coordinatorId, coordinatorId);
                     updateTenderQuoteStatus(tenderQuote, "cancelled",
-                            "Tender automatically cancelled - coordinator expected fulfillment start date has been reached.");
+                            "Tender automatically cancelled - coordinator expected fulfillment start date has been reached.",
+                            "pending");
                 }
             }
         } catch (Exception e) {
@@ -163,7 +164,16 @@ public class QuoteExpirationScheduler {
     }
 
     private void updateTenderQuoteStatus(QuoteDTO quote, String newStatus, String noteMessage) {
+        updateTenderQuoteStatus(quote, newStatus, noteMessage, null);
+    }
+
+    private void updateTenderQuoteStatus(QuoteDTO quote, String newStatus, String noteMessage, String onlyIfCurrentState) {
         try {
+            if (onlyIfCurrentState != null && !hasQuoteItemState(quote, onlyIfCurrentState)) {
+                log.info("Skipping status update for quote {}: no quoteItem in state {}", quote.getId(), onlyIfCurrentState);
+                return;
+            }
+
             String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteEndpoint() + "/" + quote.getId();
             
             HttpHeaders headers = new HttpHeaders();
@@ -171,7 +181,7 @@ public class QuoteExpirationScheduler {
             headers.set("Accept", "application/json");
 
             // Update quote status
-            String jsonPayload = buildStatusUpdateJson(newStatus, quote);
+            String jsonPayload = buildStatusUpdateJson(newStatus, quote, onlyIfCurrentState);
             HttpEntity<String> request = new HttpEntity<>(jsonPayload, headers);
 
             restTemplate.exchange(url, org.springframework.http.HttpMethod.PATCH, request, QuoteDTO.class);
@@ -317,19 +327,20 @@ public class QuoteExpirationScheduler {
     }
 
     private String buildStatusUpdateJson(String statusValue, QuoteDTO currentQuote) {
+        return buildStatusUpdateJson(statusValue, currentQuote, null);
+    }
+
+    private String buildStatusUpdateJson(String statusValue, QuoteDTO currentQuote, String onlyIfCurrentState) {
         try {
             ObjectNode updateJson = objectMapper.createObjectNode();
             ArrayNode quoteItemArray = objectMapper.createArrayNode();
 
             if (currentQuote.getQuoteItem() != null && !currentQuote.getQuoteItem().isEmpty()) {
                 for (QuoteItemDTO quoteItem : currentQuote.getQuoteItem()) {
-                    ObjectNode quoteItemJson = objectMapper.createObjectNode();
-                    quoteItemJson.put("state", statusValue);
-
-                    if (quoteItem.getId() != null) {
-                        quoteItemJson.put("id", quoteItem.getId());
+                    ObjectNode quoteItemJson = objectMapper.valueToTree(quoteItem);
+                    if (onlyIfCurrentState == null || onlyIfCurrentState.equals(quoteItem.getState())) {
+                        quoteItemJson.put("state", statusValue);
                     }
-
                     quoteItemArray.add(quoteItemJson);
                 }
             } else {
