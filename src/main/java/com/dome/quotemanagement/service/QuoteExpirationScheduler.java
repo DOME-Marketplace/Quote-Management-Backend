@@ -126,6 +126,9 @@ public class QuoteExpirationScheduler {
         if (quote.getRequestedQuoteCompletionDate() == null) {
             return false;
         }
+        if (!"tailored".equalsIgnoreCase(quote.getCategory())) {
+            return false;
+        }
 
         LocalDateTime completionDate = quote.getRequestedQuoteCompletionDate();
         LocalDateTime now = LocalDateTime.now();
