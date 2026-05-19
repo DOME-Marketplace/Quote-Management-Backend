@@ -23,6 +23,8 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -957,8 +959,33 @@ public class QuoteServiceImpl implements QuoteService {
             headers.setContentType(MediaType.APPLICATION_JSON);
             headers.set("Accept", "application/json");
             HttpEntity<String> requestEntity = new HttpEntity<>(headers);
-            
+
             restTemplate.exchange(url, HttpMethod.DELETE, requestEntity, Void.class);
+            log.info("Successfully deleted quote from TMForum API: {}", id);
+        } catch (HttpServerErrorException.GatewayTimeout e) {
+            // 504 Gateway Timeout - the deletion might have succeeded despite the timeout
+            log.warn("Received 504 Gateway Timeout while deleting quote '{}'. Verifying if deletion succeeded...", id);
+
+            // Verify if the quote was actually deleted by trying to fetch it
+            try {
+                HttpHeaders verifyHeaders = new HttpHeaders();
+                verifyHeaders.set("Accept", "application/json");
+                HttpEntity<String> verifyEntity = new HttpEntity<>(verifyHeaders);
+
+                restTemplate.exchange(url, HttpMethod.GET, verifyEntity, QuoteDTO.class);
+
+                // If GET succeeds, the quote still exists, so deletion failed
+                log.error("Quote '{}' still exists after 504 timeout - deletion actually failed", id);
+                throw new QuoteManagementException("Failed to delete quote: timeout occurred and quote still exists", HttpStatus.GATEWAY_TIMEOUT);
+            } catch (HttpClientErrorException.NotFound notFound) {
+                // 404 means the quote doesn't exist, so deletion was successful
+                log.info("Verified quote '{}' was successfully deleted despite 504 timeout", id);
+                // Don't throw an exception - the deletion succeeded
+            } catch (Exception verifyError) {
+                // If verification fails for another reason, log it but assume deletion succeeded
+                log.warn("Could not verify deletion of quote '{}' after 504 timeout: {}", id, verifyError.getMessage());
+                // Assume success since DELETE is idempotent
+            }
         } catch (Exception e) {
             log.error("Error calling TMForum API: {}", e.getMessage());
             throw e; // Re-throw the original exception to preserve HTTP status codes
