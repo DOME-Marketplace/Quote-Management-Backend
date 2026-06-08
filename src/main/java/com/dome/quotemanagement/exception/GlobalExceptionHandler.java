@@ -98,7 +98,7 @@ public class GlobalExceptionHandler {
         body.put("timestamp", LocalDateTime.now());
         body.put("status", HttpStatus.PAYLOAD_TOO_LARGE.value());
         body.put("error", HttpStatus.PAYLOAD_TOO_LARGE.getReasonPhrase());
-        body.put("message", "File size exceeds maximum allowed size of 100MB");
+        body.put("message", "File size exceeds maximum allowed size of 10MB");
         body.put("path", request.getDescription(false).replace("uri=", ""));
 
         return new ResponseEntity<>(body, HttpStatus.PAYLOAD_TOO_LARGE);
