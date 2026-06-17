@@ -43,6 +43,12 @@ public class AppConfig {
     
     @Value("${tmforum.api.product-catalog-base-url:https://tmf.dome-marketplace-sbx.org/tmf-api}")
     private String tmforumProductCatalogApiBaseUrl;
+
+    @Value("${tmforum.api.document-base-url:https://tmf.dome-marketplace-sbx.org/tmf-api}")
+    private String tmforumDocumentApiBaseUrl;
+
+    @Value("${tmforum.api.document-endpoint:/document/v4/documentSpecification}")
+    private String tmforumDocumentEndpoint;
     
     @Value("${notification.api.endpoint:/charging/api/orderManagement/notify}")
     private String notificationEndpoint;
@@ -88,6 +94,14 @@ public class AppConfig {
     
     public String getTmforumProductCatalogApiBaseUrl() {
         return tmforumProductCatalogApiBaseUrl;
+    }
+
+    public String getTmforumDocumentApiBaseUrl() {
+        return tmforumDocumentApiBaseUrl;
+    }
+
+    public String getTmforumDocumentEndpoint() {
+        return tmforumDocumentEndpoint;
     }
     
     @Autowired

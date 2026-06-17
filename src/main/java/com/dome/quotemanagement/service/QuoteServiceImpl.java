@@ -2,6 +2,7 @@ package com.dome.quotemanagement.service;
 
 import com.dome.quotemanagement.config.AppConfig;
 import com.dome.quotemanagement.dto.tmforum.AttachmentRefOrValueDTO;
+import com.dome.quotemanagement.dto.tmforum.DocumentSpecificationDTO;
 import com.dome.quotemanagement.util.EmailConstants;
 import com.dome.quotemanagement.dto.tmforum.QuoteDTO;
 import com.dome.quotemanagement.dto.tmforum.QuoteItemDTO;
@@ -43,7 +44,11 @@ public class QuoteServiceImpl implements QuoteService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private final NotificationService notificationService;
+    private final DocumentService documentService;
     private final AppConfig appConfig;
+
+    private static final long MAX_ATTACHMENT_SIZE_BYTES = 10L * 1024 * 1024;
+    private static final String DOCUMENT_SPECIFICATION_URN_PREFIX = "urn:ngsi-ld:document-specification:";
     
     /**
      * Record to hold SellerOperator information from ProductOffering
@@ -801,10 +806,9 @@ public class QuoteServiceImpl implements QuoteService {
                 throw new IllegalArgumentException("Only PDF files are allowed. Received: " + contentType);
             }
             
-            // Validate file size (limit to 100MB)
-            long maxSize = 100 * 1024 * 1024; // 100MB
-            if (file.getSize() > maxSize) {
-                throw new IllegalArgumentException("File size exceeds maximum allowed size of 100MB");
+            // Validate file size (limit to 10MB)
+            if (file.getSize() > MAX_ATTACHMENT_SIZE_BYTES) {
+                throw new IllegalArgumentException("File size exceeds maximum allowed size of 10MB");
             }
             
             // First, get the current quote
@@ -815,9 +819,15 @@ public class QuoteServiceImpl implements QuoteService {
             }
             
             QuoteDTO currentQuote = currentQuoteOpt.get();
+            Optional<String> previousDocumentId = extractDocumentIdFromQuote(currentQuote);
+
+            // Upload file to TMForum Document API (stores file in S3 and returns document reference)
+            DocumentSpecificationDTO documentSpecification =
+                    documentService.createDocumentSpecification(file, description);
+            String documentId = documentSpecification.getId();
             
-            // Convert file to AttachmentRefOrValueDTO
-            AttachmentRefOrValueDTO attachment = createAttachmentFromFile(file, description);
+            // Build quote attachment with document reference in content field
+            AttachmentRefOrValueDTO attachment = createAttachmentFromDocument(documentId, file, description);
             
             // Create a minimal update payload with the new attachment
             String jsonPayload = buildAttachmentUpdateJson(attachment, currentQuote);
@@ -845,10 +855,17 @@ public class QuoteServiceImpl implements QuoteService {
 
             // CRITICAL: Wait until the attachment is actually persisted before returning success
             // The TMForum API might return success before async processing completes
-            if (updatedQuote != null && attachmentVerificationEnabled) {
-                log.info("Waiting for attachment to be persisted before returning success...");
-                waitForAttachmentPersistence(quoteId, file.getOriginalFilename(), attachmentVerificationMaxAttempts, attachmentVerificationDelayMs);
-                log.info("Attachment persistence confirmed for quote: {} and file: {}", quoteId, file.getOriginalFilename());
+            if (updatedQuote != null) {
+                if (attachmentVerificationEnabled) {
+                    log.info("Waiting for document reference to be persisted on quote before returning success...");
+                    waitForAttachmentPersistence(quoteId, documentId, attachmentVerificationMaxAttempts, attachmentVerificationDelayMs);
+                    log.info("Document reference persistence confirmed for quote: {} and documentId: {}", quoteId, documentId);
+                }
+
+                // Remove replaced document from Document API after the new reference is persisted on the quote
+                previousDocumentId
+                        .filter(oldDocumentId -> !oldDocumentId.equals(documentId))
+                        .ifPresent(oldDocumentId -> deleteDocumentQuietly(oldDocumentId, quoteId));
             }
 
             // Send notification to customer about the new document
@@ -906,6 +923,55 @@ public class QuoteServiceImpl implements QuoteService {
             throw e; // Re-throw validation errors
         } catch (Exception e) {
             log.error("Error updating quote attachment: {}", e.getMessage(), e);
+            return Optional.empty();
+        }
+    }
+
+    @Override
+    public Optional<QuoteDTO> removeQuoteAttachment(String quoteId) {
+        log.debug("Removing quote attachment - quoteId: '{}'", quoteId);
+
+        try {
+            Optional<QuoteDTO> currentQuoteOpt = findById(quoteId);
+            if (currentQuoteOpt.isEmpty()) {
+                log.warn("Quote not found with id: {}", quoteId);
+                return Optional.empty();
+            }
+
+            QuoteDTO currentQuote = currentQuoteOpt.get();
+            String documentId = extractDocumentIdFromQuote(currentQuote)
+                    .orElseThrow(() -> new IllegalArgumentException("Quote has no attachment to remove"));
+
+            String jsonPayload = buildAttachmentRemovalJson(currentQuote);
+            String url = tmforumBaseUrl.trim() + appConfig.getTmforumQuoteEndpoint() + "/" + quoteId;
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("Accept", "application/json");
+
+            HttpEntity<String> request = new HttpEntity<>(jsonPayload, headers);
+
+            log.info("Removing attachment reference from quote - quoteId: {}, documentId: {}", quoteId, documentId);
+            log.info("JSON payload: {}", jsonPayload);
+
+            QuoteDTO updatedQuote = restTemplate.exchange(
+                    url,
+                    HttpMethod.PATCH,
+                    request,
+                    QuoteDTO.class
+            ).getBody();
+
+            log.info("Attachment reference removed from quote - quoteId: {}", quoteId);
+
+            documentService.deleteDocumentSpecification(documentId);
+
+            return Optional.ofNullable(updatedQuote);
+
+        } catch (IllegalArgumentException e) {
+            log.error("Validation error for attachment removal: {}", e.getMessage());
+            throw e;
+        } catch (Exception e) {
+            log.error("Error removing quote attachment: {}", e.getMessage(), e);
             return Optional.empty();
         }
     }
@@ -1165,153 +1231,168 @@ public class QuoteServiceImpl implements QuoteService {
      * Build a JSON payload for attachment update
      */
     private String buildAttachmentUpdateJson(AttachmentRefOrValueDTO attachment, QuoteDTO currentQuote) {
+        ArrayNode attachmentArray = objectMapper.createArrayNode();
+        ObjectNode newAttachmentObject = objectMapper.createObjectNode();
+        newAttachmentObject.put("@type", "AttachmentRefOrValue");
+
+        if (attachment.getContent() != null) {
+            newAttachmentObject.put("content", attachment.getContent());
+        }
+        if (attachment.getName() != null) {
+            newAttachmentObject.put("name", attachment.getName());
+        }
+        if (attachment.getDescription() != null) {
+            newAttachmentObject.put("description", attachment.getDescription());
+        }
+        if (attachment.getMimeType() != null) {
+            newAttachmentObject.put("mimeType", attachment.getMimeType());
+        }
+        if (attachment.getSize() != null) {
+            ObjectNode sizeObject = objectMapper.createObjectNode();
+            sizeObject.put("amount", attachment.getSize().getAmount());
+            sizeObject.put("units", attachment.getSize().getUnits());
+            newAttachmentObject.set("size", sizeObject);
+        }
+
+        attachmentArray.add(newAttachmentObject);
+        return buildAttachmentChangeJson(currentQuote, attachmentArray);
+    }
+
+    /**
+     * Build a JSON payload that clears all attachments from the first quote item
+     */
+    private String buildAttachmentRemovalJson(QuoteDTO currentQuote) {
+        return buildAttachmentChangeJson(currentQuote, objectMapper.createArrayNode());
+    }
+
+    /**
+     * Build a JSON payload for quote item attachment changes (add, replace, or remove)
+     */
+    private String buildAttachmentChangeJson(QuoteDTO currentQuote, ArrayNode attachmentArray) {
         try {
             ObjectNode updateJson = objectMapper.createObjectNode();
             ArrayNode quoteItemArray = objectMapper.createArrayNode();
-            
-            // Add attachments to quoteItem, not to quote directly (per TMForum spec)
+
             if (currentQuote.getQuoteItem() != null && !currentQuote.getQuoteItem().isEmpty()) {
-                // Update the first quote item with the new attachment
                 QuoteItemDTO firstQuoteItem = currentQuote.getQuoteItem().get(0);
-                
-                ObjectNode quoteItemJson = objectMapper.createObjectNode();
-                quoteItemJson.put("@type", "QuoteItem");
-                
-                // Preserve existing quote item properties
-                if (firstQuoteItem.getId() != null) {
-                    quoteItemJson.put("id", firstQuoteItem.getId());
-                }
-                if (firstQuoteItem.getAction() != null) {
-                    quoteItemJson.put("action", firstQuoteItem.getAction());
-                }
-                if (firstQuoteItem.getQuantity() != null) {
-                    quoteItemJson.put("quantity", firstQuoteItem.getQuantity());
-                }
-                if (firstQuoteItem.getState() != null) {
-                    quoteItemJson.put("state", firstQuoteItem.getState());
-                }
-                
-                // CRITICAL: Preserve productOffering information to maintain product reference
-                if (firstQuoteItem.getProductOffering() != null) {
-                    ObjectNode productOfferingObject = objectMapper.createObjectNode();
-                    if (firstQuoteItem.getProductOffering().getId() != null) {
-                        productOfferingObject.put("id", firstQuoteItem.getProductOffering().getId());
-                    }
-                    if (firstQuoteItem.getProductOffering().getHref() != null) {
-                        productOfferingObject.put("href", firstQuoteItem.getProductOffering().getHref());
-                    }
-                    if (firstQuoteItem.getProductOffering().getName() != null) {
-                        productOfferingObject.put("name", firstQuoteItem.getProductOffering().getName());
-                    }
-                    if (firstQuoteItem.getProductOffering().getType() != null) {
-                        productOfferingObject.put("@type", firstQuoteItem.getProductOffering().getType());
-                    }
-                    if (firstQuoteItem.getProductOffering().getReferredType() != null) {
-                        productOfferingObject.put("@referredType", firstQuoteItem.getProductOffering().getReferredType());
-                    }
-                    quoteItemJson.set("productOffering", productOfferingObject);
-                    log.debug("Preserved productOffering {} for attachment update", firstQuoteItem.getProductOffering().getId());
-                }
-                
-                // CRITICAL: Preserve relatedParty information to maintain customer filtering
-                if (firstQuoteItem.getRelatedParty() != null && !firstQuoteItem.getRelatedParty().isEmpty()) {
-                    ArrayNode relatedPartyArray = objectMapper.createArrayNode();
-                    for (com.dome.quotemanagement.dto.tmforum.RelatedPartyDTO relatedParty : firstQuoteItem.getRelatedParty()) {
-                        ObjectNode relatedPartyObject = objectMapper.createObjectNode();
-                        if (relatedParty.getId() != null) {
-                            relatedPartyObject.put("id", relatedParty.getId());
-                        }
-                        if (relatedParty.getHref() != null) {
-                            relatedPartyObject.put("href", relatedParty.getHref());
-                        }
-                        if (relatedParty.getRole() != null) {
-                            relatedPartyObject.put("role", relatedParty.getRole());
-                        }
-                        if (relatedParty.getReferredType() != null) {
-                            relatedPartyObject.put("@referredType", relatedParty.getReferredType());
-                        }
-                        if (relatedParty.getType() != null) {
-                            relatedPartyObject.put("@type", relatedParty.getType());
-                        }
-                        relatedPartyArray.add(relatedPartyObject);
-                    }
-                    quoteItemJson.set("relatedParty", relatedPartyArray);
-                }
-                
-                // Create attachment array for this quote item (overwrite any existing attachments)
-                ArrayNode attachmentArray = objectMapper.createArrayNode();
-                
-                // Add the new attachment (this will overwrite any existing attachment)
-                ObjectNode newAttachmentObject = objectMapper.createObjectNode();
-                newAttachmentObject.put("@type", "AttachmentRefOrValue");
-                
-                if (attachment.getContent() != null) {
-                    newAttachmentObject.put("content", attachment.getContent());
-                }
-                if (attachment.getName() != null) {
-                    newAttachmentObject.put("name", attachment.getName());
-                }
-                if (attachment.getDescription() != null) {
-                    newAttachmentObject.put("description", attachment.getDescription());
-                }
-                if (attachment.getMimeType() != null) {
-                    newAttachmentObject.put("mimeType", attachment.getMimeType());
-                }
-                if (attachment.getSize() != null) {
-                    ObjectNode sizeObject = objectMapper.createObjectNode();
-                    sizeObject.put("amount", attachment.getSize().getAmount());
-                    sizeObject.put("units", attachment.getSize().getUnits());
-                    newAttachmentObject.set("size", sizeObject);
-                }
-                
-                attachmentArray.add(newAttachmentObject);
-                quoteItemJson.set("attachment", attachmentArray);
-                quoteItemArray.add(quoteItemJson);
-            } else {
-                // If no quote items exist, create a minimal one with the attachment
+                quoteItemArray.add(buildQuoteItemJsonForAttachmentChange(firstQuoteItem, attachmentArray));
+            } else if (!attachmentArray.isEmpty()) {
                 ObjectNode quoteItemJson = objectMapper.createObjectNode();
                 quoteItemJson.put("@type", "QuoteItem");
                 quoteItemJson.put("action", "add");
                 quoteItemJson.put("quantity", 1);
                 quoteItemJson.put("state", "inProgress");
-                
-                ArrayNode attachmentArray = objectMapper.createArrayNode();
-                ObjectNode newAttachmentObject = objectMapper.createObjectNode();
-                newAttachmentObject.put("@type", "AttachmentRefOrValue");
-                
-                if (attachment.getContent() != null) {
-                    newAttachmentObject.put("content", attachment.getContent());
-                }
-                if (attachment.getName() != null) {
-                    newAttachmentObject.put("name", attachment.getName());
-                }
-                if (attachment.getDescription() != null) {
-                    newAttachmentObject.put("description", attachment.getDescription());
-                }
-                if (attachment.getMimeType() != null) {
-                    newAttachmentObject.put("mimeType", attachment.getMimeType());
-                }
-                if (attachment.getSize() != null) {
-                    ObjectNode sizeObject = objectMapper.createObjectNode();
-                    sizeObject.put("amount", attachment.getSize().getAmount());
-                    sizeObject.put("units", attachment.getSize().getUnits());
-                    newAttachmentObject.set("size", sizeObject);
-                }
-                
-                attachmentArray.add(newAttachmentObject);
                 quoteItemJson.set("attachment", attachmentArray);
                 quoteItemArray.add(quoteItemJson);
+            } else {
+                throw new IllegalArgumentException("Quote has no quote items to remove attachment from");
             }
-            
+
             updateJson.set("quoteItem", quoteItemArray);
-            
+
             String jsonPayload = objectMapper.writeValueAsString(updateJson);
             log.info("TMForum-compliant quoteItem attachment JSON payload: {}", jsonPayload);
-            
+
             return jsonPayload;
+        } catch (IllegalArgumentException e) {
+            throw e;
         } catch (Exception e) {
-            log.error("Error building attachment update JSON: {}", e.getMessage());
-            throw new RuntimeException("Failed to build attachment update JSON", e);
+            log.error("Error building attachment change JSON: {}", e.getMessage());
+            throw new RuntimeException("Failed to build attachment change JSON", e);
+        }
+    }
+
+    private ObjectNode buildQuoteItemJsonForAttachmentChange(QuoteItemDTO quoteItem, ArrayNode attachmentArray) {
+        ObjectNode quoteItemJson = objectMapper.createObjectNode();
+        quoteItemJson.put("@type", "QuoteItem");
+
+        if (quoteItem.getId() != null) {
+            quoteItemJson.put("id", quoteItem.getId());
+        }
+        if (quoteItem.getAction() != null) {
+            quoteItemJson.put("action", quoteItem.getAction());
+        }
+        if (quoteItem.getQuantity() != null) {
+            quoteItemJson.put("quantity", quoteItem.getQuantity());
+        }
+        if (quoteItem.getState() != null) {
+            quoteItemJson.put("state", quoteItem.getState());
+        }
+
+        if (quoteItem.getProductOffering() != null) {
+            ObjectNode productOfferingObject = objectMapper.createObjectNode();
+            if (quoteItem.getProductOffering().getId() != null) {
+                productOfferingObject.put("id", quoteItem.getProductOffering().getId());
+            }
+            if (quoteItem.getProductOffering().getHref() != null) {
+                productOfferingObject.put("href", quoteItem.getProductOffering().getHref());
+            }
+            if (quoteItem.getProductOffering().getName() != null) {
+                productOfferingObject.put("name", quoteItem.getProductOffering().getName());
+            }
+            if (quoteItem.getProductOffering().getType() != null) {
+                productOfferingObject.put("@type", quoteItem.getProductOffering().getType());
+            }
+            if (quoteItem.getProductOffering().getReferredType() != null) {
+                productOfferingObject.put("@referredType", quoteItem.getProductOffering().getReferredType());
+            }
+            quoteItemJson.set("productOffering", productOfferingObject);
+            log.debug("Preserved productOffering {} for attachment update", quoteItem.getProductOffering().getId());
+        }
+
+        if (quoteItem.getRelatedParty() != null && !quoteItem.getRelatedParty().isEmpty()) {
+            ArrayNode relatedPartyArray = objectMapper.createArrayNode();
+            for (com.dome.quotemanagement.dto.tmforum.RelatedPartyDTO relatedParty : quoteItem.getRelatedParty()) {
+                ObjectNode relatedPartyObject = objectMapper.createObjectNode();
+                if (relatedParty.getId() != null) {
+                    relatedPartyObject.put("id", relatedParty.getId());
+                }
+                if (relatedParty.getHref() != null) {
+                    relatedPartyObject.put("href", relatedParty.getHref());
+                }
+                if (relatedParty.getRole() != null) {
+                    relatedPartyObject.put("role", relatedParty.getRole());
+                }
+                if (relatedParty.getReferredType() != null) {
+                    relatedPartyObject.put("@referredType", relatedParty.getReferredType());
+                }
+                if (relatedParty.getType() != null) {
+                    relatedPartyObject.put("@type", relatedParty.getType());
+                }
+                relatedPartyArray.add(relatedPartyObject);
+            }
+            quoteItemJson.set("relatedParty", relatedPartyArray);
+        }
+
+        quoteItemJson.set("attachment", attachmentArray);
+        return quoteItemJson;
+    }
+
+    private Optional<String> extractDocumentIdFromQuote(QuoteDTO quote) {
+        if (quote.getQuoteItem() == null || quote.getQuoteItem().isEmpty()) {
+            return Optional.empty();
+        }
+
+        QuoteItemDTO firstQuoteItem = quote.getQuoteItem().get(0);
+        if (firstQuoteItem.getAttachment() == null || firstQuoteItem.getAttachment().isEmpty()) {
+            return Optional.empty();
+        }
+
+        String content = firstQuoteItem.getAttachment().get(0).getContent();
+        if (content != null && content.startsWith(DOCUMENT_SPECIFICATION_URN_PREFIX)) {
+            return Optional.of(content);
+        }
+
+        return Optional.empty();
+    }
+
+    private void deleteDocumentQuietly(String documentId, String quoteId) {
+        try {
+            documentService.deleteDocumentSpecification(documentId);
+            log.info("Deleted replaced document - quoteId: {}, documentId: {}", quoteId, documentId);
+        } catch (Exception e) {
+            log.warn("Failed to delete replaced document - quoteId: {}, documentId: {}: {}",
+                    quoteId, documentId, e.getMessage());
         }
     }
 
@@ -1604,45 +1685,25 @@ public class QuoteServiceImpl implements QuoteService {
     }
         
     /**
-     * Create AttachmentRefOrValueDTO from uploaded file
+     * Create AttachmentRefOrValueDTO with a document specification reference in the content field.
      */
-    private AttachmentRefOrValueDTO createAttachmentFromFile(MultipartFile file, String description) {
-        try {
-            // Encode file content as base64
-            byte[] fileBytes = file.getBytes();
-            String base64Content = java.util.Base64.getEncoder().encodeToString(fileBytes);
-            
-            // Create attachment DTO with embedded base64 content
-            AttachmentRefOrValueDTO attachment = new AttachmentRefOrValueDTO();
-            attachment.setType("AttachmentRefOrValue");
-            attachment.setName(file.getOriginalFilename());
-            attachment.setMimeType(file.getContentType());
-            
-            // Create proper Quantity object for size (TMForum spec compliance)
-            com.dome.quotemanagement.dto.tmforum.QuantityDTO sizeQuantity = 
-                new com.dome.quotemanagement.dto.tmforum.QuantityDTO(
-                    (float) file.getSize(), 
-                    "bytes"
-                );
-            attachment.setSize(sizeQuantity);
-            
-            attachment.setContent(base64Content); // Use content property with base64 encoded file
-            
-            if (description != null && !description.trim().isEmpty()) {
-                attachment.setDescription(description);
-            } else {
-                attachment.setDescription("PDF document: " + file.getOriginalFilename());
-            }
-            
-            log.info("Created attachment with base64 content - file: {}, size: {} bytes", 
-                    file.getOriginalFilename(), file.getSize());
-            
-            return attachment;
-            
-        } catch (Exception e) {
-            log.error("Error creating attachment from file: {}", e.getMessage());
-            throw new RuntimeException("Failed to process uploaded file: " + e.getMessage(), e);
+    private AttachmentRefOrValueDTO createAttachmentFromDocument(String documentId, MultipartFile file, String description) {
+        AttachmentRefOrValueDTO attachment = new AttachmentRefOrValueDTO();
+        attachment.setType("AttachmentRefOrValue");
+        attachment.setName(file.getOriginalFilename());
+        attachment.setMimeType(file.getContentType());
+        attachment.setContent(documentId);
+
+        if (description != null && !description.trim().isEmpty()) {
+            attachment.setDescription(description);
+        } else {
+            attachment.setDescription("PDF document: " + file.getOriginalFilename());
         }
+
+        log.info("Created quote attachment with document reference - documentId: {}, file: {}",
+                documentId, file.getOriginalFilename());
+
+        return attachment;
     }
 
     /**
@@ -2510,11 +2571,10 @@ public class QuoteServiceImpl implements QuoteService {
     }
     
     /**
-     * Wait until the attachment is actually persisted by the TMForum API
-     * The TMForum API might return success before async processing completes
-     * This method will block until the attachment is confirmed or timeout occurs
+     * Wait until the document reference is persisted on the quote by the TMForum API.
+     * The TMForum API might return success before async processing completes.
      */
-    private void waitForAttachmentPersistence(String quoteId, String fileName, int maxAttempts, int delayMs) {
+    private void waitForAttachmentPersistence(String quoteId, String documentId, int maxAttempts, int delayMs) {
         for (int i = 0; i < maxAttempts; i++) {
             try {
                 // Wait before checking (except for first attempt)
@@ -2522,25 +2582,18 @@ public class QuoteServiceImpl implements QuoteService {
                     Thread.sleep(delayMs);
                 }
                 
-                // Fetch the quote again to verify attachment exists
+                // Fetch the quote again to verify the document reference exists
                 Optional<QuoteDTO> verificationQuoteOpt = findById(quoteId);
                 if (verificationQuoteOpt.isPresent()) {
                     QuoteDTO verificationQuote = verificationQuoteOpt.get();
                     
-                    // Check if quote items have attachments
                     if (verificationQuote.getQuoteItem() != null) {
                         for (QuoteItemDTO quoteItem : verificationQuote.getQuoteItem()) {
                             if (quoteItem.getAttachment() != null) {
                                 for (AttachmentRefOrValueDTO attachment : quoteItem.getAttachment()) {
-                                    if (attachment.getName() != null && attachment.getName().equals(fileName)) {
-                                        // Additional verification: check if attachment has content
-                                        boolean hasContent = attachment.getContent() != null && !attachment.getContent().isEmpty();
-                                        boolean hasSize = attachment.getSize() != null && attachment.getSize().getAmount() > 0;
-                                        
-                                        if (hasContent && hasSize) {
-                                            log.info("Attachment confirmed as persisted on attempt {}: {}", i + 1, fileName);
-                                            return; // Success - attachment found with content
-                                        }
+                                    if (attachment.getContent() != null && attachment.getContent().equals(documentId)) {
+                                        log.info("Document reference confirmed as persisted on attempt {}: {}", i + 1, documentId);
+                                        return;
                                     }
                                 }
                             }
@@ -2548,7 +2601,7 @@ public class QuoteServiceImpl implements QuoteService {
                     }
                 }
                 
-                log.warn("Attachment not yet persisted, attempt {} of {}: {}", i + 1, maxAttempts, fileName);
+                log.warn("Document reference not yet persisted, attempt {} of {}: {}", i + 1, maxAttempts, documentId);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 log.error("Attachment persistence check interrupted", e);
@@ -2558,10 +2611,9 @@ public class QuoteServiceImpl implements QuoteService {
             }
         }
         
-        // If we get here, attachment was not found after all attempts
-        log.error("Attachment was not persisted after {} attempts and {} seconds total wait time for file: {}", 
-                maxAttempts, (maxAttempts * delayMs) / 1000, fileName);
-        throw new RuntimeException("File upload failed: attachment was not persisted within timeout period. Please try again.");
+        log.error("Document reference was not persisted after {} attempts and {} seconds total wait time for documentId: {}",
+                maxAttempts, (maxAttempts * delayMs) / 1000, documentId);
+        throw new RuntimeException("File upload failed: document reference was not persisted within timeout period. Please try again.");
     }
 }
 

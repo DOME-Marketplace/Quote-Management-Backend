@@ -383,7 +383,7 @@ public class QuoteManagementController {
     @PatchMapping(value = "/addAttachmentToQuote/{id}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @Operation(
         summary = "Add attachment to quote", 
-        description = "Adds a PDF attachment to the quote. Only PDF files up to 100MB are allowed. Backend calls: /quote/{id}"
+        description = "Adds a PDF attachment to the quote via TMForum Document API. Only PDF files up to 10MB are allowed. Backend calls: Document API POST + /quote/{id} PATCH"
     )
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "Quote attachment added successfully",
@@ -395,7 +395,7 @@ public class QuoteManagementController {
     public ResponseEntity<QuoteDTO> updateQuoteAttachment(
             @Parameter(description = "Quote ID", required = true)
             @PathVariable String id,
-            @Parameter(description = "PDF file to attach (max 100MB)", required = true)
+            @Parameter(description = "PDF file to attach (max 10MB)", required = true)
             @RequestParam("file") MultipartFile file,
             @Parameter(description = "Description of the attachment", required = false)
             @RequestParam(value = "description", required = false, defaultValue = "") String description) {
@@ -417,6 +417,42 @@ public class QuoteManagementController {
             throw e;
         } catch (Exception e) {
             log.error("Error adding attachment to quote - quoteId: '{}', filename: '{}': {}", id, file.getOriginalFilename(), e.getMessage(), e);
+            throw e;
+        }
+    }
+
+    @DeleteMapping("/removeAttachmentFromQuote/{id}")
+    @Operation(
+        summary = "Remove attachment from quote",
+        description = "Removes the attachment reference from the quote and deletes the document from TMForum Document API. Backend calls: /quote/{id} PATCH + Document API DELETE"
+    )
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Quote attachment removed successfully",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = QuoteDTO.class))),
+        @ApiResponse(responseCode = "404", description = "Quote not found"),
+        @ApiResponse(responseCode = "400", description = "Quote has no attachment to remove"),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
+    public ResponseEntity<QuoteDTO> removeQuoteAttachment(
+            @Parameter(description = "Quote ID", required = true)
+            @PathVariable String id) {
+        log.info("Received request to remove attachment from quote - quoteId: '{}'", id);
+
+        try {
+            return quoteService.removeQuoteAttachment(id)
+                    .map(quote -> {
+                        log.info("Successfully removed attachment from quote - quoteId: '{}'", id);
+                        return ResponseEntity.ok(quote);
+                    })
+                    .orElseGet(() -> {
+                        log.warn("Quote not found for attachment removal - quoteId: '{}'", id);
+                        return ResponseEntity.notFound().build();
+                    });
+        } catch (IllegalArgumentException e) {
+            log.warn("Validation error for attachment removal - quoteId: '{}': {}", id, e.getMessage());
+            throw e;
+        } catch (Exception e) {
+            log.error("Error removing attachment from quote - quoteId: '{}': {}", id, e.getMessage(), e);
             throw e;
         }
     }
